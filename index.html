@@ -1,0 +1,3134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pepper Print · Efectos</title>
+<!--
+  PEPPER PRINT · EFECTOS
+  Web local, un solo archivo, sin dependencias. Abrir con doble clic en el navegador.
+
+  CÓMO AGREGAR UN EFECTO NUEVO
+  Buscá la sección "EFECTOS" en el script y copiá este molde:
+
+    registerEffect({
+      id: 'mi-efecto',                 // único, sin espacios
+      name: 'Mi efecto',               // nombre visible
+      description: 'Qué hace.',
+      params: [
+        { key: 'fuerza', label: 'Fuerza', type: 'range', min: 0, max: 1, step: 0.01, default: 0.5 },
+        { key: 'color',  label: 'Color',  type: 'color', default: '#ff0000' },
+        { key: 'modo',   label: 'Modo',   type: 'select', default: 'a', options: [['a','Opción A'],['b','Opción B']] },
+        { key: 'activo', label: 'Activo', type: 'checkbox', default: true },
+        // showIf: p => p.modo === 'a'   → muestra el control solo si se cumple
+        // unit: 'px'                    → unidad que se muestra junto al valor
+      ],
+      apply(img, p, ctx) {
+        // img: ImageData (img.data = RGBA, img.width, img.height). Se puede modificar en el lugar.
+        // p: valores de los parámetros.
+        // ctx.scale: escala de la vista previa (1 = resolución completa).
+        //   Multiplicá por ctx.scale todo lo que esté en píxeles para que la vista previa coincida con la exportación.
+        // ctx.transparentPaper: true cuando se exporta "solo tinta".
+        return img; // devolver el mismo ImageData u otro nuevo
+      }
+    });
+
+  El efecto aparece solo en el menú "Agregar efecto".
+  Cada efecto tiene además, automáticamente, modo de fusión (como Photoshop) y opacidad:
+  se mezcla con el resultado de los efectos que tiene arriba en la lista.
+-->
+<style>
+:root{
+  --plastic:#e5e4e0; --plastic-hi:#f3f2ef; --plastic-lo:#cfceca; --plastic-edge:#b9b8b3;
+  --slate:#4a5767; --slate-2:#3f4b5a; --slate-3:#33404d; --slate-line:#6a7787;
+  --label:#eef2f6; --label-dim:#b8c3cf;
+  --key:#f6f6f4; --key-lo:#d9d9d5; --key-text:#2b2f35;
+  --lcd:#8fbd73; --lcd-lo:#79a75f; --lcd-text:#1d3418;
+  --led:#7dff4a; --led-off:#26313b;
+  --go:#1fa36a; --stop:#d8648e; --amber:#f2c230; --info:#2f7fe0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font:12px/1.35 "Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;color:var(--key-text);
+  background:radial-gradient(120% 120% at 30% 0%,#3a3d42,#1d1f22)}
+.app{display:grid;grid-template-columns:350px 1fr;height:100vh;padding:14px;gap:14px}
+
+/* ---------- carcasa de plástico ---------- */
+.plastic{background:linear-gradient(180deg,var(--plastic-hi),var(--plastic) 30%,var(--plastic-lo));
+  border-radius:18px;box-shadow:inset 0 1px 0 #fff,inset 0 -2px 0 var(--plastic-edge),0 10px 30px #0007,0 1px 0 #ffffff22}
+aside{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.brand{padding:14px 18px 10px;display:flex;align-items:center;gap:10px}
+.brand .badge{background:var(--slate);color:#fff;font-weight:800;letter-spacing:.12em;font-size:11px;padding:4px 8px;border-radius:4px;box-shadow:inset 0 1px 0 #ffffff30}
+.brand h1{font-size:13px;margin:0;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#4a4f57}
+.brand .model{margin-left:auto;font-size:10px;letter-spacing:.12em;color:#8a8f96}
+.scroll{flex:1;overflow:auto;padding:4px 12px 12px}
+
+/* ---------- módulos azul pizarra ---------- */
+.module{background:linear-gradient(180deg,var(--slate),var(--slate-2));border-radius:8px;padding:10px 10px 8px;margin-bottom:10px;
+  box-shadow:inset 0 2px 4px #0005,inset 0 -1px 0 #ffffff14,0 1px 0 #fff}
+.mod-label,.section-title{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--label);margin:0 0 7px;display:flex;align-items:center;gap:6px}
+.section-title{color:#5d636b;margin:14px 4px 6px}
+.section-title::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#b9b8b3,transparent)}
+
+.card{background:linear-gradient(180deg,var(--slate),var(--slate-2));border-radius:8px;margin-bottom:9px;
+  box-shadow:inset 0 2px 4px #0005,inset 0 -1px 0 #ffffff14,0 1px 0 #fff}
+.card-head{display:flex;align-items:center;gap:7px;padding:9px 8px 9px 10px;cursor:pointer;user-select:none}
+.card-head .name{flex:1;font-weight:700;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--label)}
+.card.off .name{color:#8693a2;text-decoration:line-through}
+.card-body{padding:0 10px 10px;display:none}
+.card.open .card-body{display:block}
+.desc{color:var(--label-dim);font-size:11px;margin:0 0 8px}
+.icon-btn{background:linear-gradient(180deg,var(--key),var(--key-lo));border:none;color:var(--key-text);cursor:pointer;
+  width:22px;height:20px;border-radius:5px;font-size:11px;line-height:20px;padding:0;
+  box-shadow:0 1px 0 #fff8 inset,0 2px 0 #1d252e,0 3px 4px #0006}
+.icon-btn:active{transform:translateY(1px);box-shadow:0 1px 0 #1d252e,0 1px 2px #0006}
+.mode-tag{font:700 9.5px/1 "Courier New",monospace;color:var(--lcd-text);background:var(--lcd);padding:3px 5px;border-radius:3px;white-space:nowrap;box-shadow:inset 0 1px 2px #0004}
+.mode-tag:empty{display:none}
+.group-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:var(--amber);margin:14px 0 2px;padding-top:9px;border-top:1px solid var(--slate-line)}
+.card-body .group-title:first-of-type{border-top:none;padding-top:0;margin-top:6px}
+
+/* ---------- controles ---------- */
+.ctrl{margin:9px 0}
+.ctrl > label{display:flex;justify-content:space-between;align-items:center;color:var(--label);font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px}
+.ctrl .val{font:700 10px/1 "Courier New",monospace;color:var(--lcd-text);background:var(--lcd);padding:3px 5px;border-radius:3px;min-width:44px;text-align:right;letter-spacing:0;text-transform:none;box-shadow:inset 0 1px 2px #0005}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;margin:0;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:var(--slate-3);box-shadow:inset 0 1px 2px #000a,0 1px 0 #ffffff1a}
+input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:var(--slate-3);box-shadow:inset 0 1px 2px #000a}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:14px;margin-top:-4px;border-radius:4px;
+  background:linear-gradient(180deg,var(--key),var(--key-lo));box-shadow:0 1px 0 #fff inset,0 2px 0 #1d252e,0 3px 4px #0007}
+input[type=range]::-moz-range-thumb{width:22px;height:14px;border:none;border-radius:4px;background:linear-gradient(180deg,var(--key),var(--key-lo));box-shadow:0 2px 0 #1d252e,0 3px 4px #0007}
+input[type=color]{width:100%;height:26px;border:none;border-radius:5px;background:var(--slate-3);padding:3px;cursor:pointer;box-shadow:inset 0 1px 3px #000a}
+input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
+/* casillas = LED */
+input[type=checkbox]{-webkit-appearance:none;appearance:none;width:11px;height:11px;border-radius:50%;margin:0;flex:none;cursor:pointer;
+  background:radial-gradient(circle at 35% 35%,#4a5866,var(--led-off));box-shadow:inset 0 1px 2px #000c,0 1px 0 #ffffff22}
+input[type=checkbox]:checked{background:radial-gradient(circle at 35% 35%,#d6ffc4,var(--led) 45%,#3cb81b);box-shadow:0 0 6px var(--led),0 0 2px var(--led)}
+select{width:100%;background:linear-gradient(180deg,var(--key),var(--key-lo));color:var(--key-text);border:none;border-radius:6px;padding:6px 8px;
+  font:700 10.5px/1.2 "Helvetica Neue",Helvetica,Arial,sans-serif;letter-spacing:.04em;cursor:pointer;box-shadow:0 1px 0 #fff inset,0 2px 0 #1d252e,0 3px 5px #0006}
+select option{text-transform:none}
+.btn{width:100%;background:linear-gradient(180deg,var(--key),var(--key-lo));color:var(--key-text);border:none;border-radius:7px;padding:8px 8px;
+  font:700 10px/1.1 "Helvetica Neue",Helvetica,Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;
+  box-shadow:0 1px 0 #fff inset,0 3px 0 #9d9c97,0 4px 6px #0004}
+.btn:active{transform:translateY(2px);box-shadow:0 1px 0 #fff inset,0 1px 0 #9d9c97,0 2px 3px #0004}
+.module .btn,.card .btn{box-shadow:0 1px 0 #fff inset,0 3px 0 #1d252e,0 4px 6px #0006}
+.btn:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:7px}
+.row > *{flex:1;min-width:0}
+.check{display:flex;align-items:center;gap:7px;color:var(--label);font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin:9px 0 2px;cursor:pointer}
+.blend-box{background:var(--slate-3);border-radius:6px;padding:8px 8px 3px;margin:4px 0 6px;box-shadow:inset 0 1px 3px #0008}
+.blend-box .ctrl{margin:8px 0 4px}
+
+/* ---------- pie: teclas grandes ---------- */
+.side-foot{padding:10px 14px 16px;border-top:1px solid #c9c8c3;box-shadow:inset 0 1px 0 #fff}
+.keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;align-items:end}
+.key-wrap{display:flex;flex-direction:column;align-items:center;gap:5px}
+.key-cap{font-size:8.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4d5259;display:flex;align-items:center;gap:4px}
+.key-cap .dot{width:6px;height:6px;border-radius:50%;background:var(--info)}
+.pill{width:100%;height:22px;border:none;border-radius:11px;cursor:pointer;background:linear-gradient(180deg,var(--key),var(--key-lo));
+  box-shadow:0 1px 0 #fff inset,0 3px 0 #9d9c97,0 4px 6px #0004}
+.pill:active{transform:translateY(2px);box-shadow:0 1px 0 #fff inset,0 1px 0 #9d9c97}
+.pill.amber{background:linear-gradient(180deg,#ffe07a,var(--amber));box-shadow:0 1px 0 #fff8 inset,0 3px 0 #b88d12,0 4px 6px #0004}
+.pill:disabled,.round:disabled{opacity:.45;cursor:default}
+.big-keys{display:flex;justify-content:space-around;align-items:center;margin-top:12px}
+.big-keys .key-wrap{flex-direction:row;gap:12px}
+.round{width:62px;height:62px;border-radius:50%;border:none;cursor:pointer;position:relative;color:#fff;font:700 18px/1 sans-serif;
+  box-shadow:0 0 0 5px #d3d2cd,0 0 0 6px #b5b4af,0 5px 0 5px #a9a8a3,0 9px 14px 5px #0005}
+.round.start{background:radial-gradient(circle at 40% 30%,#5fe0a3,var(--go) 55%,#13774c)}
+.round.stop{width:50px;height:50px;background:radial-gradient(circle at 40% 30%,#f7a8c4,var(--stop) 55%,#a83c63)}
+.round:active{transform:translateY(3px)}
+.round .ring{position:absolute;inset:30%;border:2px solid #ffffffcc;border-radius:50%}
+.round.start .ring::after{content:"";position:absolute;left:50%;top:-25%;width:2px;height:55%;background:#ffffffcc;transform:translateX(-50%)}
+.round.stop .ring{inset:32%;border-radius:3px}
+
+/* ---------- lado derecho ---------- */
+.right{display:flex;flex-direction:column;min-width:0;min-height:0;padding:12px}
+.toolbar{flex:none;display:flex;align-items:stretch;gap:10px;margin-bottom:12px}
+.toolbar .module{margin:0;display:flex;align-items:center;gap:10px;padding:8px 10px}
+.lcd{flex:1;min-width:0;background:linear-gradient(180deg,var(--lcd),var(--lcd-lo));color:var(--lcd-text);border-radius:4px;padding:6px 10px;
+  font:700 12px/1.35 "Courier New",monospace;box-shadow:inset 0 2px 5px #0006,0 0 0 3px var(--slate-3)}
+.lcd .file{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;letter-spacing:.02em}
+.lcd .status{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.8;font-size:11px}
+.info{width:22px;height:22px;border-radius:4px;background:linear-gradient(180deg,#5aa2ff,var(--info));color:#fff;font:italic 700 14px/22px Georgia,serif;text-align:center;flex:none;box-shadow:0 1px 0 #ffffff60 inset}
+.seg{background:#0a0d0a;border-radius:4px;padding:4px 10px;min-width:96px;text-align:right;color:var(--led);
+  font:italic 700 24px/1 "Courier New",monospace;letter-spacing:.06em;text-shadow:0 0 6px #7dff4aaa;box-shadow:inset 0 2px 5px #000,0 0 0 3px var(--slate-3)}
+.seg small{display:block;font:700 7.5px/1 sans-serif;letter-spacing:.2em;color:#5aa83a;text-shadow:none;font-style:normal;margin-top:3px}
+.tb-keys{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.tb-keys .mod-label{margin:0;justify-content:center}
+.tb-keys select{width:110px}
+.toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:auto;white-space:nowrap}
+.toggle .led{width:8px;height:8px;border-radius:50%;background:var(--led-off);box-shadow:inset 0 1px 2px #000a}
+.toggle.on .led{background:var(--led);box-shadow:0 0 6px var(--led)}
+
+.bezel{flex:1;min-height:0;display:flex;border-radius:12px;padding:10px;background:linear-gradient(180deg,var(--slate),var(--slate-3));
+  box-shadow:inset 0 3px 8px #0008,0 1px 0 #fff}
+.viewport{flex:1;overflow:auto;display:flex;padding:22px;border-radius:6px;background:#161a1f;
+  background-image:linear-gradient(45deg,#1c2127 25%,transparent 25%),linear-gradient(-45deg,#1c2127 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1c2127 75%),linear-gradient(-45deg,transparent 75%,#1c2127 75%);
+  background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0;box-shadow:inset 0 2px 8px #000c}
+.stage{position:relative;margin:auto;flex:none;box-shadow:0 8px 30px #000a}
+.stage canvas{display:block;width:100%;height:100%}
+#orig{position:absolute;inset:0;display:none}
+.stage.compare #orig,.stage.hold #orig{display:block}
+.stage.hold #orig{clip-path:none!important}
+.stage.compare{cursor:ew-resize}
+.handle{position:absolute;top:0;bottom:0;width:2px;background:var(--led);box-shadow:0 0 8px var(--led);display:none;pointer-events:none;transform:translateX(-1px)}
+.stage.compare .handle{display:block}
+.stage.hold .handle{display:none}
+.tag{position:absolute;top:8px;padding:3px 6px;font:700 10px/1 "Courier New",monospace;border-radius:3px;background:var(--lcd);color:var(--lcd-text);display:none;pointer-events:none}
+.stage.compare .tag{display:block}
+.tag.l{left:8px}.tag.r{right:8px}
+.empty{margin:auto;text-align:center;color:var(--label-dim);border:2px dashed var(--slate-line);border-radius:14px;padding:46px 54px;cursor:pointer;background:#1d232a;
+  font-size:11px;letter-spacing:.06em}
+.empty strong{display:block;color:var(--label);font-size:13px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
+.viewport.drag .empty,.viewport.drag .stage{outline:2px dashed var(--led);outline-offset:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="plastic">
+    <div class="brand"><span class="badge">PEPPER</span><h1>Print · Efectos</h1><span class="model">PP-EF27</span></div>
+    <div class="scroll">
+      <div class="module">
+        <div class="mod-label">Original</div>
+        <button class="btn" id="btnOpen">Abrir imagen</button>
+        <label class="check"><input type="checkbox" id="fullRes"> Vista previa a resolución completa</label>
+      </div>
+
+      <div class="section-title">Efectos · de arriba a abajo</div>
+      <div id="pipeline"></div>
+      <div class="module">
+        <div class="mod-label">Agregar efecto</div>
+        <div class="row">
+          <select id="addSelect"></select>
+          <button class="btn" id="btnAdd" style="flex:0 0 auto;width:auto;padding:8px 12px">+ Agregar</button>
+        </div>
+      </div>
+    </div>
+    <div class="side-foot">
+      <div class="keys">
+        <div class="key-wrap"><span class="key-cap"><span class="dot"></span>Guardar</span><button class="pill" id="btnSavePreset" title="Guardar ajustes (.json)"></button></div>
+        <div class="key-wrap"><span class="key-cap"><span class="dot"></span>Cargar</span><button class="pill" id="btnLoadPreset" title="Cargar ajustes (.json)"></button></div>
+        <div class="key-wrap"><span class="key-cap">Original</span><button class="pill" id="btnHold" title="Mantené apretado para ver la imagen original"></button></div>
+        <div class="key-wrap"><span class="key-cap">Solo tinta</span><button class="pill amber" id="btnExportInk" disabled title="Exportar PNG con el papel transparente (solo la tinta)"></button></div>
+      </div>
+      <div class="big-keys">
+        <div class="key-wrap"><span class="key-cap" style="flex-direction:column;align-items:flex-end;text-align:right"><span>Start</span><span>Exportar PNG</span></span><button class="round start" id="btnExport" disabled title="Exportar PNG a resolución completa"><span class="ring"></span></button></div>
+        <div class="key-wrap"><span class="key-cap" style="flex-direction:column;align-items:flex-end;text-align:right"><span>Stop</span><span>Quitar efectos</span></span><button class="round stop" id="btnStop" title="Quitar todos los efectos de la lista"><span class="ring"></span></button></div>
+      </div>
+    </div>
+  </aside>
+
+  <section class="right plastic">
+    <div class="toolbar">
+      <div class="module" style="flex:1;min-width:0">
+        <div class="lcd"><span class="file" id="fileName">Ready to Print</span><span class="status" id="status">Abrí o arrastrá una imagen</span></div>
+        <div class="info" title="Arrastrá o pegá una imagen. Cada efecto tiene modo de fusión y opacidad. Tecla C: comparar.">i</div>
+        <div class="seg"><span id="seg">0000</span><small id="segLabel">MS</small></div>
+      </div>
+      <div class="module tb-keys">
+        <div class="mod-label">Zoom</div>
+        <select id="zoom" title="Zoom">
+          <option value="fit">Ajustar</option>
+          <option value="0.25">25%</option>
+          <option value="0.5">50%</option>
+          <option value="1">100%</option>
+          <option value="2">200%</option>
+          <option value="4">400%</option>
+        </select>
+      </div>
+      <div class="module tb-keys">
+        <div class="mod-label">Comparar</div>
+        <button class="btn toggle" id="btnCompare" title="Comparar antes / después (tecla C)"><span class="led"></span>Antes / Después</button>
+      </div>
+    </div>
+    <div class="bezel">
+      <div class="viewport" id="viewport">
+        <div class="empty" id="empty">
+          <strong>Arrastrá una imagen acá</strong>
+          o pegala con Ctrl/Cmd + V, o hacé clic para abrir
+        </div>
+        <div class="stage" id="stage" style="display:none">
+          <canvas id="out"></canvas>
+          <canvas id="orig"></canvas>
+          <div class="handle" id="handle"></div>
+          <span class="tag l">ANTES</span><span class="tag r">DESPUÉS</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" hidden>
+<input type="file" id="presetInput" accept="application/json,.json" hidden>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   UTILIDADES
+   ===================================================================== */
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+
+function hexToRgb(h) {
+  h = String(h).replace('#', '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const n = parseInt(h, 16) || 0;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+// Número pseudoaleatorio estable en [0,1) para (x, y, semilla)
+function hash2(x, y, seed) {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1442695041)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+// Ruido suave (value noise) en [0,1)
+function valueNoise(x, y, seed) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash2(xi, yi, seed), b = hash2(xi + 1, yi, seed);
+  const c = hash2(xi, yi + 1, seed), d = hash2(xi + 1, yi + 1, seed);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+// Ruido fractal (3 octavas) en [0,1)
+function fbm(x, y, seed) {
+  return (valueNoise(x, y, seed)
+        + 0.5  * valueNoise(x * 2.03, y * 2.03, seed + 17)
+        + 0.25 * valueNoise(x * 4.11, y * 4.11, seed + 31)) / 1.75;
+}
+
+const BAYER8 = [
+   0,32, 8,40, 2,34,10,42,
+  48,16,56,24,50,18,58,26,
+  12,44, 4,36,14,46, 6,38,
+  60,28,52,20,62,30,54,22,
+   3,35,11,43, 1,33, 9,41,
+  51,19,59,27,49,17,57,25,
+  15,47, 7,39,13,45, 5,37,
+  63,31,55,23,61,29,53,21
+].map(v => (v + 0.5) / 64);
+
+/* =====================================================================
+   REGISTRO DE EFECTOS
+   ===================================================================== */
+const EFFECTS = {};
+function registerEffect(def) { EFFECTS[def.id] = def; }
+function defaultParams(def) {
+  const p = {};
+  def.params.forEach(prm => { if (prm.key) p[prm.key] = prm.default; });
+  return p;
+}
+
+/* =====================================================================
+   EFECTOS  ← agregá los nuevos acá
+   ===================================================================== */
+
+registerEffect({
+  id: 'ajustes',
+  name: 'Ajustes básicos',
+  description: 'Brillo, contraste y saturación.',
+  params: [
+    { key: 'brillo',     label: 'Brillo',     type: 'range', min: -100, max: 100, step: 1, default: 0 },
+    { key: 'contraste',  label: 'Contraste',  type: 'range', min: -100, max: 100, step: 1, default: 0 },
+    { key: 'saturacion', label: 'Saturación', type: 'range', min: -100, max: 100, step: 1, default: 0 },
+    { key: 'invertir',   label: 'Invertir',   type: 'checkbox', default: false },
+  ],
+  apply(img, p) {
+    const d = img.data;
+    const b = p.brillo * 2.55;
+    const c = p.contraste * 2.55;
+    const f = (259 * (c + 255)) / (255 * (259 - c));
+    const s = 1 + p.saturacion / 100;
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i], g = d[i + 1], bl = d[i + 2];
+      const l = 0.299 * r + 0.587 * g + 0.114 * bl;
+      r = l + (r - l) * s; g = l + (g - l) * s; bl = l + (bl - l) * s;
+      r = f * (r - 128) + 128 + b; g = f * (g - 128) + 128 + b; bl = f * (bl - 128) + 128 + b;
+      if (p.invertir) { r = 255 - r; g = 255 - g; bl = 255 - bl; }
+      d[i] = r; d[i + 1] = g; d[i + 2] = bl; // Uint8ClampedArray recorta solo
+    }
+    return img;
+  }
+});
+
+registerEffect({
+  id: 'retro',
+  name: 'Retro Print',
+  description: 'Impresión a una tinta: trama + reticulación + color de tinta sobre papel.',
+  params: [
+    { key: 'trama', label: 'Tipo de trama', type: 'select', default: 'grano', options: [
+      ['grano',  'Grano (estocástico)'],
+      ['puntos', 'Semitono de puntos'],
+      ['lineas', 'Semitono de líneas'],
+      ['bayer',  'Dither ordenado (Bayer)'],
+      ['fs',     'Difusión de error (Floyd–Steinberg)'],
+    ]},
+    { key: 'tam',       label: 'Tamaño de trama',     type: 'range', min: 1, max: 40, step: 0.5, default: 2, unit: 'px' },
+    { key: 'angulo',    label: 'Ángulo',              type: 'range', min: 0, max: 180, step: 1, default: 45, unit: '°',
+      showIf: p => p.trama === 'puntos' || p.trama === 'lineas' },
+    { key: 'contraste', label: 'Contraste',           type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.3 },
+    { key: 'brillo',    label: 'Brillo',              type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0 },
+    { key: 'ret',       label: 'Reticulación',        type: 'range', min: 0, max: 1, step: 0.01, default: 0.35 },
+    { key: 'retEscala', label: 'Escala reticulación', type: 'range', min: 1, max: 80, step: 0.5, default: 6, unit: 'px',
+      showIf: p => p.ret > 0 },
+    { key: 'tinta',     label: 'Color de tinta',      type: 'color', default: '#3a3da6' },
+    { key: 'papel',     label: 'Color de papel',      type: 'color', default: '#f4dce1' },
+    { key: 'texPapel',  label: 'Textura de papel',    type: 'range', min: 0, max: 0.3, step: 0.01, default: 0.05 },
+    { key: 'semilla',   label: 'Semilla aleatoria',   type: 'range', min: 1, max: 999, step: 1, default: 7 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale;
+    const tam = Math.max(1, p.tam * sc);
+    const retS = Math.max(0.5, p.retEscala * sc);
+    const seed = p.semilla | 0;
+    const ink = hexToRgb(p.tinta), pap = hexToRgb(p.papel);
+
+    // 1) Densidad de tinta por píxel (0 = papel, 1 = tinta llena)
+    const D = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x, o = i * 4;
+        const a = data[o + 3] / 255;
+        let l = (0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2]) / 255;
+        l = l * a + (1 - a); // lo transparente cuenta como papel
+        l = (l - 0.5) * p.contraste + 0.5 + p.brillo;
+        let dd = clamp01(1 - l);
+        // Reticulación: grumos de tinta en los medios tonos (va DEBAJO de la trama)
+        if (p.ret > 0 && dd > 0 && dd < 1) {
+          const n = fbm(x / retS, y / retS, seed + 101) - 0.5;
+          dd = clamp01(dd + n * p.ret * 1.6 * Math.sqrt(4 * dd * (1 - dd)));
+        }
+        D[i] = dd;
+      }
+    }
+
+    // 2) Trama → máscara de tinta (1 = tinta)
+    const M = new Uint8Array(w * h);
+    const TAU = Math.PI * 2;
+    if (p.trama === 'grano') {
+      for (let y = 0; y < h; y++) {
+        const by = Math.floor(y / tam);
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          M[i] = D[i] > hash2(Math.floor(x / tam), by, seed) ? 1 : 0;
+        }
+      }
+    } else if (p.trama === 'puntos' || p.trama === 'lineas') {
+      const a = p.angulo * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+      const dots = p.trama === 'puntos';
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          const u = (x * ca + y * sa) / tam;
+          const s = dots
+            ? 0.5 + 0.25 * (Math.cos(TAU * u) + Math.cos(TAU * ((-x * sa + y * ca) / tam)))
+            : 0.5 + 0.5 * Math.cos(TAU * u);
+          M[i] = s > 1 - D[i] ? 1 : 0;
+        }
+      }
+    } else if (p.trama === 'bayer') {
+      for (let y = 0; y < h; y++) {
+        const by = (Math.floor(y / tam) & 7) * 8;
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          M[i] = D[i] > BAYER8[by + (Math.floor(x / tam) & 7)] ? 1 : 0;
+        }
+      }
+    } else if (p.trama === 'fs') {
+      const gw = Math.ceil(w / tam), gh = Math.ceil(h / tam);
+      const G = new Float32Array(gw * gh);
+      for (let gy = 0; gy < gh; gy++)
+        for (let gx = 0; gx < gw; gx++) {
+          const sx = Math.min(w - 1, Math.floor((gx + 0.5) * tam));
+          const sy = Math.min(h - 1, Math.floor((gy + 0.5) * tam));
+          G[gy * gw + gx] = D[sy * w + sx];
+        }
+      const B = new Uint8Array(gw * gh);
+      for (let gy = 0; gy < gh; gy++) {
+        const ltr = (gy & 1) === 0, dir = ltr ? 1 : -1;
+        for (let k = 0; k < gw; k++) {
+          const gx = ltr ? k : gw - 1 - k, j = gy * gw + gx;
+          const old = G[j], nv = old >= 0.5 ? 1 : 0, err = old - nv;
+          B[j] = nv;
+          const nx = gx + dir;
+          if (nx >= 0 && nx < gw) G[j + dir] += err * 7 / 16;
+          if (gy + 1 < gh) {
+            const r = j + gw;
+            if (gx - dir >= 0 && gx - dir < gw) G[r - dir] += err * 3 / 16;
+            G[r] += err * 5 / 16;
+            if (nx >= 0 && nx < gw) G[r + dir] += err * 1 / 16;
+          }
+        }
+      }
+      for (let y = 0; y < h; y++) {
+        const gy = Math.floor(y / tam) * gw;
+        for (let x = 0; x < w; x++) M[y * w + x] = B[gy + Math.floor(x / tam)];
+      }
+    }
+
+    // 3) Color: tinta sobre papel
+    const texS = 40 * sc;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x, o = i * 4;
+        if (M[i]) {
+          data[o] = ink[0]; data[o + 1] = ink[1]; data[o + 2] = ink[2]; data[o + 3] = 255;
+        } else if (ctx.transparentPaper) {
+          data[o + 3] = 0;
+        } else {
+          let t = 1;
+          if (p.texPapel > 0) t = 1 - p.texPapel * (0.6 * fbm(x / texS, y / texS, seed + 3) + 0.4 * hash2(x, y, seed + 5));
+          data[o] = pap[0] * t; data[o + 1] = pap[1] * t; data[o + 2] = pap[2] * t; data[o + 3] = 255;
+        }
+      }
+    }
+    return img;
+  }
+});
+
+registerEffect({
+  id: 'stipple',
+  name: 'Stipple (puntillado)',
+  description: 'Puntos irregulares según la luz: ruido + umbral, como Añadir ruido + Umbral en Photoshop.',
+  params: [
+    { key: 'umbral',    label: 'Umbral',              type: 'range', min: 0, max: 255, step: 1, default: 128 },
+    { key: 'ruido',     label: 'Cantidad de ruido',   type: 'range', min: 0, max: 1.5, step: 0.01, default: 0.7 },
+    { key: 'tam',       label: 'Tamaño de punto',     type: 'range', min: 0.5, max: 12, step: 0.1, default: 1.4, unit: 'px' },
+    { key: 'agrupa',    label: 'Agrupamiento',        type: 'range', min: 0, max: 1, step: 0.01, default: 0.25 },
+    { key: 'agrupaEsc', label: 'Escala agrupamiento', type: 'range', min: 4, max: 120, step: 1, default: 18, unit: 'px',
+      showIf: p => p.agrupa > 0 },
+    { key: 'contraste', label: 'Contraste',           type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.2 },
+    { key: 'brillo',    label: 'Brillo',              type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0 },
+    { key: 'invertir',  label: 'Invertir (puntos en las luces)', type: 'checkbox', default: false },
+    { key: 'tinta',     label: 'Color de los puntos', type: 'color', default: '#000000' },
+    { key: 'papel',     label: 'Color de fondo',      type: 'color', default: '#ffffff' },
+    { key: 'semilla',   label: 'Semilla aleatoria',   type: 'range', min: 1, max: 999, step: 1, default: 11 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale;
+    const ds = Math.max(0.35, p.tam * sc);      // tamaño de punto en píxeles de este canvas
+    const cs = Math.max(1, p.agrupaEsc * sc);   // escala de los grumos
+    const seed = p.semilla | 0;
+    const ink = hexToRgb(p.tinta), pap = hexToRgb(p.papel);
+    const thr = p.umbral / 255;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4;
+        const a = data[o + 3] / 255;
+        let l = (0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2]) / 255;
+        l = l * a + (1 - a);                    // transparente = fondo
+        if (p.invertir) l = 1 - l;
+        l = (l - 0.5) * p.contraste + 0.5 + p.brillo;
+        // Ruido de grano fino (puntos redondeados e irregulares)
+        let n = valueNoise(x / ds, y / ds, seed) - 0.5;
+        // Grumos de baja frecuencia: zonas con más o menos puntos
+        if (p.agrupa > 0) n = n * (1 - p.agrupa) + (fbm(x / cs, y / cs, seed + 57) - 0.5) * p.agrupa;
+        const isInk = l + n * p.ruido * 2 < thr;
+        if (isInk) {
+          data[o] = ink[0]; data[o + 1] = ink[1]; data[o + 2] = ink[2]; data[o + 3] = 255;
+        } else if (ctx.transparentPaper) {
+          data[o + 3] = 0;
+        } else {
+          data[o] = pap[0]; data[o + 1] = pap[1]; data[o + 2] = pap[2]; data[o + 3] = 255;
+        }
+      }
+    }
+    return img;
+  }
+});
+
+const PALETAS = {
+  retro: ['#1f9e93', '#d8402a', '#f0a030', '#2a2522'],
+  comic: ['#00a0e0', '#e6007e', '#ffe600', '#1e1e1e'],
+  riso:  ['#ff48b0', '#0078bf', '#ffe800'],
+  rojo:  ['#d42a2a', '#1e1e1e'],
+  azul:  ['#2b4fd6', '#1e1e1e'],
+};
+
+registerEffect({
+  id: 'halftone',
+  name: 'Halftone (DTF / serigrafía)',
+  description: 'Trama de puntos sin semitransparencias: cada píxel queda opaco o transparente. Para DTF exportá con "solo tinta" (fondo transparente).',
+  params: [
+    { type: 'header', label: 'Modo' },
+    { key: 'modo', label: 'Modo', type: 'select', default: 'dtf', options: [
+      ['dtf',    'DTF: puntos del color original'],
+      ['tintas', 'Tintas planas (separación tipo serigrafía)'],
+      ['cmyk',   'Color CMYK'],
+      ['mono',   'Una tinta'],
+    ]},
+    { key: 'fuente', label: 'Qué se convierte en puntos', type: 'select', default: 'alpha', options: [
+      ['alpha',     'Transparencias y sombras suaves'],
+      ['color',     'Quitar el color de la remera (usa el color de fondo)'],
+      ['claridad',  'Remera oscura: lo oscuro se vuelve transparente'],
+      ['oscuridad', 'Remera clara: lo claro se vuelve transparente'],
+    ], showIf: p => p.modo === 'dtf' },
+    { key: 'tol',        label: 'Tolerancia del color', type: 'range', min: 0, max: 0.6, step: 0.01, default: 0.08,
+      showIf: p => p.modo === 'dtf' && p.fuente === 'color' },
+    { key: 'transicion', label: 'Transición',           type: 'range', min: 0.01, max: 0.8, step: 0.01, default: 0.35,
+      showIf: p => p.modo === 'dtf' && p.fuente === 'color' },
+
+    { key: 'paleta', label: 'Paleta de tintas', type: 'select', default: 'retro', options: [
+      ['retro',  'Retro: verde agua, rojo, naranja, negro'],
+      ['comic',  'Cómic: cian, magenta, amarillo, negro'],
+      ['riso',   'Risografía: rosa flúor, azul, amarillo'],
+      ['rojo',   'Rojo + negro'],
+      ['azul',   'Azul + negro'],
+      ['custom', 'Personalizada'],
+    ], showIf: p => p.modo === 'tintas' },
+    { key: 'nTintas', label: 'Cantidad de tintas', type: 'range', min: 1, max: 6, step: 1, default: 4,
+      showIf: p => p.modo === 'tintas' && p.paleta === 'custom' },
+    { key: 'tinta1', label: 'Tinta 1', type: 'color', default: '#1f9e93', showIf: p => p.modo === 'tintas' && p.paleta === 'custom' },
+    { key: 'tinta2', label: 'Tinta 2', type: 'color', default: '#d8402a', showIf: p => p.modo === 'tintas' && p.paleta === 'custom' && p.nTintas >= 2 },
+    { key: 'tinta3', label: 'Tinta 3', type: 'color', default: '#f0a030', showIf: p => p.modo === 'tintas' && p.paleta === 'custom' && p.nTintas >= 3 },
+    { key: 'tinta4', label: 'Tinta 4', type: 'color', default: '#2a2522', showIf: p => p.modo === 'tintas' && p.paleta === 'custom' && p.nTintas >= 4 },
+    { key: 'tinta5', label: 'Tinta 5', type: 'color', default: '#3b5bd6', showIf: p => p.modo === 'tintas' && p.paleta === 'custom' && p.nTintas >= 5 },
+    { key: 'tinta6', label: 'Tinta 6', type: 'color', default: '#f2d23a', showIf: p => p.modo === 'tintas' && p.paleta === 'custom' && p.nTintas >= 6 },
+    { key: 'gcr', label: 'Cantidad de negro (GCR)', type: 'range', min: 0, max: 1, step: 0.01, default: 0.8,
+      showIf: p => p.modo === 'cmyk' },
+    { key: 'mezcla', label: 'Superposición de tintas', type: 'select', default: 'multiplicar', options: [
+      ['multiplicar', 'Multiplicar (sobreimpresión)'],
+      ['opaca',       'Opaca (la última tinta tapa)'],
+    ], showIf: p => p.modo === 'cmyk' || p.modo === 'tintas' },
+    { key: 'tinta', label: 'Color de tinta', type: 'color', default: '#000000', showIf: p => p.modo === 'mono' },
+
+    { type: 'header', label: 'Trama' },
+    { key: 'trama', label: 'Tipo de trama', type: 'select', default: 'am', options: [
+      ['am',    'AM: puntos de tamaño variable'],
+      ['fm',    'FM: grano estocástico'],
+      ['fs',    'Difusión de error'],
+      ['bayer', 'Dither ordenado (Bayer)'],
+    ]},
+    { key: 'forma', label: 'Forma del punto', type: 'select', default: 'redondo', options: [
+      ['redondo', 'Redondo'], ['eliptico', 'Elíptico (cadena)'], ['cuadrado', 'Cuadrado'],
+      ['rombo', 'Rombo'], ['lineas', 'Líneas'], ['cruz', 'Cruz'],
+    ], showIf: p => p.trama === 'am' },
+    { key: 'lpi', label: 'Lineatura',               type: 'range', min: 10, max: 85, step: 1, default: 35, unit: ' LPI', showIf: p => p.trama === 'am' },
+    { key: 'dpi', label: 'Resolución de impresión', type: 'range', min: 72, max: 600, step: 1, default: 300, unit: ' DPI', showIf: p => p.trama === 'am' },
+    { key: 'tam', label: 'Tamaño de grano',         type: 'range', min: 0.5, max: 12, step: 0.1, default: 1.5, unit: 'px', showIf: p => p.trama !== 'am' },
+    { key: 'angulo',   label: 'Ángulo',             type: 'range', min: 0, max: 90, step: 0.5, default: 22.5, unit: '°',
+      showIf: p => p.trama === 'am' && (p.modo === 'dtf' || p.modo === 'mono') },
+    { key: 'rotacion', label: 'Rotación de ángulos', type: 'range', min: 0, max: 90, step: 0.5, default: 0, unit: '°',
+      showIf: p => p.trama === 'am' && (p.modo === 'cmyk' || p.modo === 'tintas') },
+
+    { type: 'header', label: 'Tono y cobertura' },
+    { key: 'contraste', label: 'Contraste',            type: 'range', min: 0.3, max: 3, step: 0.05, default: 1 },
+    { key: 'brillo',    label: 'Brillo',               type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0 },
+    { key: 'gamma',     label: 'Curva de cobertura',   type: 'range', min: 0.3, max: 3, step: 0.05, default: 1 },
+    { key: 'ganancia',  label: 'Ganancia (más / menos tinta)', type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0 },
+    { key: 'minimo',    label: 'Punto mínimo (se borra por debajo)', type: 'range', min: 0, max: 0.4, step: 0.01, default: 0.08 },
+    { key: 'solido',    label: 'Sólido desde',         type: 'range', min: 0.6, max: 1, step: 0.01, default: 0.92 },
+
+    { type: 'header', label: 'Look' },
+    { key: 'desregistro', label: 'Desregistro de tintas', type: 'range', min: 0, max: 15, step: 0.5, default: 0, unit: 'px',
+      showIf: p => p.modo === 'cmyk' || p.modo === 'tintas' },
+    { key: 'desgaste',    label: 'Desgaste (vintage)',    type: 'range', min: 0, max: 1, step: 0.01, default: 0 },
+    { key: 'escDesgaste', label: 'Escala del desgaste',   type: 'range', min: 5, max: 200, step: 1, default: 40, unit: 'px',
+      showIf: p => p.desgaste > 0 },
+    { key: 'semilla',     label: 'Semilla aleatoria',     type: 'range', min: 1, max: 999, step: 1, default: 21 },
+    { key: 'fondo',       label: 'Fondo / color de remera', type: 'color', default: '#f1e9d2' },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const N = w * h, sc = ctx.scale, TAU = Math.PI * 2, seed = p.semilla | 0;
+    const bg = hexToRgb(p.fondo);
+
+    // 0) Ajuste de tono sobre una copia (también define el color de los puntos en modo DTF)
+    const src = data.slice();
+    if (p.contraste !== 1 || p.brillo !== 0) {
+      for (let o = 0; o < src.length; o += 4)
+        for (let k = 0; k < 3; k++) src[o + k] = ((src[o + k] / 255 - 0.5) * p.contraste + 0.5 + p.brillo) * 255;
+    }
+
+    // Cobertura procesada: curva + ganancia + punto mínimo + sólido
+    const proc = c => {
+      if (c <= 0) return 0;
+      if (p.gamma !== 1) c = Math.pow(c, p.gamma);
+      c = clamp01(c + p.ganancia);
+      if (c < p.minimo) return 0;
+      if (c >= p.solido) return 1;
+      return c;
+    };
+
+    // 1) Separación en canales: { map: cobertura 0..1, ang, rgb (null = color del píxel) }
+    const chans = [];
+    if (p.modo === 'cmyk') {
+      const maps = [0, 1, 2, 3].map(() => new Float32Array(N));
+      for (let i = 0; i < N; i++) {
+        const o = i * 4, a = src[o + 3] / 255;
+        const r = src[o] / 255, g = src[o + 1] / 255, b = src[o + 2] / 255;
+        const k = (1 - Math.max(r, g, b)) * p.gcr;
+        if (k < 1) {
+          maps[0][i] = clamp01((1 - r - k) / (1 - k)) * a;
+          maps[1][i] = clamp01((1 - g - k) / (1 - k)) * a;
+          maps[2][i] = clamp01((1 - b - k) / (1 - k)) * a;
+        }
+        maps[3][i] = k * a;
+      }
+      const inks = [[0, 174, 239], [236, 0, 140], [255, 242, 0], [35, 31, 32]];
+      [15, 75, 0, 45].forEach((ang, k) => chans.push({ map: maps[k], ang: ang + p.rotacion, rgb: inks[k] }));
+    } else if (p.modo === 'tintas') {
+      const hexes = p.paleta === 'custom'
+        ? [p.tinta1, p.tinta2, p.tinta3, p.tinta4, p.tinta5, p.tinta6].slice(0, Math.max(1, p.nTintas | 0))
+        : (PALETAS[p.paleta] || PALETAS.retro);
+      const inks = hexes.map(hexToRgb);
+      const maps = inks.map(() => new Float32Array(N));
+      const dirs = inks.map(c => [c[0] - bg[0], c[1] - bg[1], c[2] - bg[2]]);
+      const lens = dirs.map(d => d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+      for (let i = 0; i < N; i++) {
+        const o = i * 4, a = src[o + 3] / 255;
+        if (a <= 0) continue;
+        const pr = src[o] - bg[0], pg = src[o + 1] - bg[1], pb = src[o + 2] - bg[2];
+        let best = -1, bt = 0, be = Infinity;
+        for (let k = 0; k < inks.length; k++) {
+          const d = dirs[k];
+          if (lens[k] < 1) continue;
+          const t = clamp01((pr * d[0] + pg * d[1] + pb * d[2]) / lens[k]);
+          const er = pr - t * d[0], eg = pg - t * d[1], eb = pb - t * d[2];
+          const e = er * er + eg * eg + eb * eb;
+          if (e < be) { be = e; best = k; bt = t; }
+        }
+        if (best >= 0) maps[best][i] = bt * a;
+      }
+      const BASE = [15, 75, 0, 45, 30, 60];
+      inks.forEach((rgb, k) => chans.push({ map: maps[k], ang: BASE[k % 6] + p.rotacion, rgb }));
+    } else {
+      const A = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const o = i * 4, a = src[o + 3] / 255;
+        const lum = (0.299 * src[o] + 0.587 * src[o + 1] + 0.114 * src[o + 2]) / 255;
+        let f = 1;
+        if (p.modo === 'mono') f = 1 - lum;
+        else if (p.fuente === 'claridad') f = lum;
+        else if (p.fuente === 'oscuridad') f = 1 - lum;
+        else if (p.fuente === 'color') {
+          const o2 = i * 4;
+          const dr = data[o2] - bg[0], dg = data[o2 + 1] - bg[1], db = data[o2 + 2] - bg[2];
+          f = clamp01((Math.sqrt(dr * dr + dg * dg + db * db) / 441.67 - p.tol) / p.transicion);
+        }
+        A[i] = clamp01(a * f);
+      }
+      chans.push({ map: A, ang: p.angulo, rgb: p.modo === 'mono' ? hexToRgb(p.tinta) : null });
+    }
+
+    // 2) Trama de cada canal → máscara M (1 = tinta) y S (píxel del que sale el color, modo DTF)
+    const shape = (fu, fv, c) => {
+      switch (p.forma) {
+        case 'cuadrado': return Math.max(Math.abs(fu), Math.abs(fv)) < Math.sqrt(c) / 2;
+        case 'rombo': { const r = c <= 0.5 ? Math.sqrt(c / 2) : 1 - Math.sqrt((1 - c) / 2); return Math.abs(fu) + Math.abs(fv) < r; }
+        case 'lineas': return Math.abs(fv) < c / 2;
+        case 'cruz': { const wd = 1 - Math.sqrt(1 - c); return Math.min(Math.abs(fu), Math.abs(fv)) < wd / 2; }
+        case 'eliptico': return (Math.cos(TAU * fu) + 0.6 * Math.cos(TAU * fv) + 1.6) / 3.2 > 1 - c;
+        default: return 0.5 + 0.25 * (Math.cos(TAU * fu) + Math.cos(TAU * fv)) > 1 - c;
+      }
+    };
+    const cell = Math.max(1.5, (p.dpi / p.lpi) * sc);
+    const grain = Math.max(0.35, p.tam * sc);
+
+    const screen = (ch, k) => {
+      const M = new Uint8Array(N);
+      const S = ch.rgb ? null : new Int32Array(N);
+      const map = ch.map;
+      const set = (i, from) => { M[i] = 1; if (S) S[i] = from; };
+      if (p.trama === 'am') {
+        const a = ch.ang * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const i = y * w + x, own = proc(map[i]);
+          if (own <= 0) continue;                    // nunca agrandar la forma
+          if (own >= 1) { set(i, i); continue; }     // zona sólida: detalle completo
+          const u = (x * ca + y * sa) / cell, v = (-x * sa + y * ca) / cell;
+          const cu = Math.floor(u) + 0.5, cv = Math.floor(v) + 0.5;
+          let cx = Math.round((cu * ca - cv * sa) * cell), cy = Math.round((cu * sa + cv * ca) * cell);
+          cx = cx < 0 ? 0 : cx >= w ? w - 1 : cx;
+          cy = cy < 0 ? 0 : cy >= h ? h - 1 : cy;
+          const ci = cy * w + cx;
+          let c = proc(map[ci]), from = ci;
+          if (c <= 0) { c = own; from = i; }
+          if (c >= 1) c = 0.999;
+          if (shape(u - cu, v - cv, c)) set(i, from);
+        }
+      } else if (p.trama === 'fm') {
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const i = y * w + x, own = proc(map[i]);
+          if (own > 0 && (own >= 1 || own > hash2(Math.floor(x / grain), Math.floor(y / grain), seed + k * 977))) set(i, i);
+        }
+      } else if (p.trama === 'bayer') {
+        const g = Math.max(1, grain);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const i = y * w + x, own = proc(map[i]);
+          const t = BAYER8[(Math.floor(y / g) & 7) * 8 + ((Math.floor(x / g) + k * 3) & 7)];
+          if (own > 0 && (own >= 1 || own > t)) set(i, i);
+        }
+      } else { // difusión de error (Floyd–Steinberg) sobre una grilla del tamaño del grano
+        const g = Math.max(1, grain);
+        const gw = Math.ceil(w / g), gh = Math.ceil(h / g);
+        const G = new Float32Array(gw * gh);
+        for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+          const sx = Math.min(w - 1, Math.floor((gx + 0.5) * g)), sy = Math.min(h - 1, Math.floor((gy + 0.5) * g));
+          G[gy * gw + gx] = proc(map[sy * w + sx]);
+        }
+        const B = new Uint8Array(gw * gh);
+        for (let gy = 0; gy < gh; gy++) {
+          const ltr = (gy & 1) === 0, dir = ltr ? 1 : -1;
+          for (let q = 0; q < gw; q++) {
+            const gx = ltr ? q : gw - 1 - q, j = gy * gw + gx;
+            const nv = G[j] >= 0.5 ? 1 : 0, err = G[j] - nv;
+            B[j] = nv;
+            const nx = gx + dir;
+            if (nx >= 0 && nx < gw) G[j + dir] += err * 7 / 16;
+            if (gy + 1 < gh) {
+              const r = j + gw;
+              if (gx - dir >= 0 && gx - dir < gw) G[r - dir] += err * 3 / 16;
+              G[r] += err * 5 / 16;
+              if (nx >= 0 && nx < gw) G[r + dir] += err / 16;
+            }
+          }
+        }
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const i = y * w + x, own = proc(map[i]);
+          if (own > 0 && (own >= 1 || B[Math.floor(y / g) * gw + Math.floor(x / g)])) set(i, i);
+        }
+      }
+      return { M, S };
+    };
+    const masks = chans.map(screen);
+
+    // Desregistro: cada tinta se corre un poco en una dirección distinta
+    const offs = chans.map((_, k) => {
+      if (!p.desregistro || chans.length < 2) return [0, 0];
+      const a = k * 2.399 + seed;
+      return [Math.round(Math.cos(a) * p.desregistro * sc), Math.round(Math.sin(a) * p.desregistro * sc)];
+    });
+
+    // 3) Composición
+    const multiply = (p.modo === 'cmyk' || p.modo === 'tintas') && p.mezcla === 'multiplicar';
+    const es = Math.max(1, p.escDesgaste * sc);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, o = i * 4;
+      let hit = false, r = 255, g = 255, b = 255;
+      const worn = p.desgaste > 0 &&
+        (0.75 * fbm(x / es, y / es, seed + 211) + 0.25 * hash2(x, y, seed + 223)) < p.desgaste * 0.8;
+      if (!worn) {
+        for (let k = 0; k < chans.length; k++) {
+          let j = i;
+          const [dx, dy] = offs[k];
+          if (dx || dy) {
+            const xx = x - dx, yy = y - dy;
+            if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+            j = yy * w + xx;
+          }
+          const m = masks[k];
+          if (!m.M[j]) continue;
+          let c = chans[k].rgb;
+          if (!c) { const so = m.S[j] * 4; c = [src[so], src[so + 1], src[so + 2]]; }
+          if (multiply && hit) { r = r * c[0] / 255; g = g * c[1] / 255; b = b * c[2] / 255; }
+          else { r = c[0]; g = c[1]; b = c[2]; }
+          hit = true;
+        }
+      }
+      if (hit) {
+        if (multiply && !ctx.transparentPaper) { r = r * bg[0] / 255; g = g * bg[1] / 255; b = b * bg[2] / 255; }
+        data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+      } else if (ctx.transparentPaper) {
+        data[o + 3] = 0;
+      } else {
+        data[o] = bg[0]; data[o + 1] = bg[1]; data[o + 2] = bg[2]; data[o + 3] = 255;
+      }
+    }
+    return img;
+  }
+});
+
+registerEffect({
+  id: 'fotocopia',
+  name: 'Fotocopia',
+  description: 'Look de fotocopia: contraste, polvo de tóner, grano, negros planos y papel con pliegues.',
+  params: [
+    { type: 'header', label: 'Imagen' },
+    { key: 'contraste',  label: 'Contraste',            type: 'range', min: 0.5, max: 3, step: 0.05, default: 1.4 },
+    { key: 'brillo',     label: 'Brillo',               type: 'range', min: -0.4, max: 0.4, step: 0.01, default: 0.03 },
+    { key: 'desaturar',  label: 'Desaturar',            type: 'range', min: 0, max: 1, step: 0.01, default: 0.15 },
+    { type: 'header', label: 'Ruido' },
+    { key: 'ruidoColor', label: 'Ruido de color (polvo de tóner)', type: 'range', min: 0, max: 0.5, step: 0.01, default: 0.12 },
+    { key: 'grano',      label: 'Grano monocromo',      type: 'range', min: 0, max: 0.6, step: 0.01, default: 0.2 },
+    { key: 'tamGrano',   label: 'Tamaño del grano',     type: 'range', min: 0.5, max: 5, step: 0.1, default: 1.2, unit: 'px' },
+    { type: 'header', label: 'Umbral' },
+    { key: 'negros',     label: 'Aplastar negros desde', type: 'range', min: 0, max: 0.7, step: 0.01, default: 0.24 },
+    { key: 'blancos',    label: 'Quemar blancos desde',  type: 'range', min: 0.6, max: 1.01, step: 0.01, default: 0.9 },
+    { key: 'colorNegro', label: 'Color del negro',       type: 'color', default: '#151413' },
+    { type: 'header', label: 'Papel' },
+    { key: 'papel',      label: 'Color de papel',       type: 'color', default: '#eeeae2' },
+    { key: 'texPapel',   label: 'Textura de papel',     type: 'range', min: 0, max: 0.3, step: 0.01, default: 0.07 },
+    { key: 'pliegues',   label: 'Pliegues',             type: 'range', min: 0, max: 6, step: 1, default: 2 },
+    { key: 'intPliegue', label: 'Marca de los pliegues', type: 'range', min: 0, max: 1, step: 0.01, default: 0.55,
+      showIf: p => p.pliegues > 0 },
+    { key: 'rayas',      label: 'Rayas de escáner',     type: 'range', min: 0, max: 1, step: 0.01, default: 0.25 },
+    { key: 'manchas',    label: 'Manchas de tóner',     type: 'range', min: 0, max: 1, step: 0.01, default: 0.2 },
+    { key: 'semilla',    label: 'Semilla aleatoria',    type: 'range', min: 1, max: 999, step: 1, default: 5 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    const pap = hexToRgb(p.papel), neg = hexToRgb(p.colorNegro);
+    const gs = Math.max(0.35, p.tamGrano * sc);
+    const ts = Math.max(1, 30 * sc);
+
+    // Pliegues: líneas casi rectas, alternando verticales y horizontales
+    const folds = [];
+    for (let k = 0; k < p.pliegues; k++) {
+      const vert = k % 2 === 0;
+      folds.push({
+        vert,
+        pos: (0.15 + 0.7 * hash2(k, 1, seed + 401)) * (vert ? w : h),
+        skew: (hash2(k, 2, seed + 401) - 0.5) * 0.04,
+        side: hash2(k, 3, seed + 401) < 0.5 ? -1 : 1,
+      });
+    }
+    const core = Math.max(0.6, 1.3 * sc), shade = Math.max(2, 28 * sc);
+    // Rayas de escáner: valor por columna
+    const streak = new Float32Array(w);
+    for (let x = 0; x < w; x++) {
+      const n = fbm(x / Math.max(1, 3 * sc), 0.5, seed + 77);
+      streak[x] = 1 - p.rayas * 0.35 * Math.max(0, n - 0.45) * 2;
+    }
+    const sp = Math.max(1, 2 * sc);
+
+    const smooth = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4;
+        const a = data[o + 3] / 255;
+        let r = data[o] / 255, g = data[o + 1] / 255, b = data[o + 2] / 255;
+        // transparente = papel
+        r = r * a + (1 - a); g = g * a + (1 - a); b = b * a + (1 - a);
+
+        // 1) contraste, brillo, desaturación
+        r = (r - 0.5) * p.contraste + 0.5 + p.brillo;
+        g = (g - 0.5) * p.contraste + 0.5 + p.brillo;
+        b = (b - 0.5) * p.contraste + 0.5 + p.brillo;
+        let l = 0.299 * r + 0.587 * g + 0.114 * b;
+        r = r + (l - r) * p.desaturar; g = g + (l - g) * p.desaturar; b = b + (l - b) * p.desaturar;
+
+        // 2) ruido de color (por canal) + grano monocromo
+        if (p.ruidoColor > 0) {
+          r += (hash2(x, y, seed + 11) - 0.5) * p.ruidoColor;
+          g += (hash2(x, y, seed + 12) - 0.5) * p.ruidoColor;
+          b += (hash2(x, y, seed + 13) - 0.5) * p.ruidoColor;
+        }
+        if (p.grano > 0) {
+          const n = (valueNoise(x / gs, y / gs, seed + 21) - 0.5) * p.grano * 2;
+          r += n; g += n; b += n;
+        }
+        l = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        // 3) umbral: negros planos, blancos quemados al papel, medios multiplicados sobre el papel
+        let isPaper = false;
+        if (l < p.negros) {
+          r = neg[0] / 255; g = neg[1] / 255; b = neg[2] / 255;
+        } else {
+          const t = smooth(p.blancos - 0.06, p.blancos, l);   // hacia el papel
+          r = clamp01(r); g = clamp01(g); b = clamp01(b);
+          r = r + (1 - r) * t; g = g + (1 - g) * t; b = b + (1 - b) * t;
+          if (t >= 1) isPaper = true;
+          r *= pap[0] / 255; g *= pap[1] / 255; b *= pap[2] / 255;
+        }
+
+        // 4) papel: textura, pliegues, rayas, manchas (se multiplican sobre todo)
+        let f = streak[x];
+        if (p.texPapel > 0) f *= 1 - p.texPapel * (0.6 * fbm(x / ts, y / ts, seed + 31) + 0.4 * hash2(x, y, seed + 32));
+        for (const fd of folds) {
+          const d = fd.vert ? x - (fd.pos + y * fd.skew) : y - (fd.pos + x * fd.skew);
+          const ad = Math.abs(d);
+          f *= 1 - p.intPliegue * 0.45 * Math.exp(-(ad / core) * (ad / core));       // línea del pliegue
+          if (d * fd.side > 0) f *= 1 - p.intPliegue * 0.12 * Math.exp(-ad / shade); // sombra a un lado
+          else f *= 1 + p.intPliegue * 0.04 * Math.exp(-ad / shade);                 // brillo al otro
+        }
+        if (p.manchas > 0 && hash2(Math.floor(x / sp), Math.floor(y / sp), seed + 51) < p.manchas * 0.004) {
+          f *= 0.15; isPaper = false;
+        }
+        r *= f; g *= f; b *= f;
+
+        if (ctx.transparentPaper && isPaper) { data[o + 3] = 0; continue; }
+        data[o] = r * 255; data[o + 1] = g * 255; data[o + 2] = b * 255; data[o + 3] = 255;
+      }
+    }
+    return img;
+  }
+});
+
+registerEffect({
+  id: 'bordado',
+  name: 'Bordado (punto cruz)',
+  description: 'Convierte la imagen en puntadas de hilo sobre tela, como un bordado a punto cruz.',
+  params: [
+    { type: 'header', label: 'Puntada' },
+    { key: 'estilo', label: 'Tipo de puntada', type: 'select', default: 'cruz', options: [
+      ['cruz', 'Punto cruz (X)'], ['medio', 'Medio punto (/)'], ['satin', 'Satén (puntadas paralelas)'],
+    ]},
+    { key: 'tam',      label: 'Tamaño de la puntada', type: 'range', min: 3, max: 60, step: 1, default: 12, unit: 'px' },
+    { key: 'grosor',   label: 'Grosor del hilo',      type: 'range', min: 0.12, max: 0.6, step: 0.01, default: 0.3 },
+    { key: 'colores',  label: 'Colores de hilo (0 = todos)', type: 'range', min: 0, max: 32, step: 1, default: 12 },
+    { key: 'relieve',  label: 'Relieve / brillo del hilo', type: 'range', min: 0, max: 1, step: 0.01, default: 0.6 },
+    { key: 'irregular', label: 'Irregularidad (hecho a mano)', type: 'range', min: 0, max: 1, step: 0.01, default: 0.3 },
+    { type: 'header', label: 'Qué se borda' },
+    { key: 'quitar', label: 'No bordar', type: 'select', default: 'transparente', options: [
+      ['nada', 'Bordar todo'],
+      ['transparente', 'Lo transparente'],
+      ['blanco', 'Lo transparente y el blanco'],
+      ['color', 'Lo transparente y un color'],
+    ]},
+    { key: 'colorQuitar', label: 'Color a no bordar', type: 'color', default: '#ffffff', showIf: p => p.quitar === 'color' },
+    { key: 'tol',         label: 'Tolerancia',        type: 'range', min: 0, max: 0.5, step: 0.01, default: 0.12, showIf: p => p.quitar === 'color' },
+    { type: 'header', label: 'Tela' },
+    { key: 'tela',     label: 'Color de tela', type: 'color', default: '#f3eee4' },
+    { key: 'agujeros', label: 'Mostrar agujeros de la tela (Aida)', type: 'checkbox', default: true },
+    { key: 'semilla',  label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 3 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const s = Math.max(2, p.tam * ctx.scale);
+    const gw = Math.ceil(w / s), gh = Math.ceil(h / s), G = gw * gh;
+    const seed = p.semilla | 0;
+    const tela = hexToRgb(p.tela), qc = hexToRgb(p.colorQuitar);
+
+    // 1) Color promedio y cobertura de cada celda
+    const sr = new Float32Array(G), sg = new Float32Array(G), sb = new Float32Array(G), sa = new Float32Array(G), cnt = new Float32Array(G);
+    for (let y = 0; y < h; y++) {
+      const gy = Math.floor(y / s) * gw;
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4, a = data[o + 3] / 255, c = gy + Math.floor(x / s);
+        sr[c] += data[o] * a; sg[c] += data[o + 1] * a; sb[c] += data[o + 2] * a; sa[c] += a; cnt[c]++;
+      }
+    }
+    const cr = new Float32Array(G), cg = new Float32Array(G), cb = new Float32Array(G), on = new Uint8Array(G);
+    for (let c = 0; c < G; c++) {
+      if (!cnt[c]) continue;
+      const cov = sa[c] / cnt[c];
+      if (p.quitar !== 'nada' && cov < 0.5) continue;
+      const k = sa[c] > 0 ? 1 / sa[c] : 0;
+      let r = sr[c] * k, g = sg[c] * k, b = sb[c] * k;
+      if (p.quitar === 'nada' && cov < 1) { r = r * cov + 255 * (1 - cov); g = g * cov + 255 * (1 - cov); b = b * cov + 255 * (1 - cov); }
+      if (p.quitar === 'blanco' && (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.92) continue;
+      if (p.quitar === 'color') {
+        const dr = r - qc[0], dg = g - qc[1], db = b - qc[2];
+        if (Math.sqrt(dr * dr + dg * dg + db * db) / 441.67 < p.tol) continue;
+      }
+      cr[c] = r; cg[c] = g; cb[c] = b; on[c] = 1;
+    }
+
+    // 2) Reducir a N colores de hilo (k-means)
+    const K = p.colores | 0;
+    if (K > 0) {
+      const idx = []; for (let c = 0; c < G; c++) if (on[c]) idx.push(c);
+      if (idx.length > K) {
+        const cen = [];
+        for (let k = 0; k < K; k++) { const c = idx[Math.floor((k + 0.5) / K * idx.length)]; cen.push([cr[c], cg[c], cb[c]]); }
+        // ordenar por luminosidad para que el arranque cubra todo el rango
+        const order = idx.slice().sort((a, b) => (cr[a] + cg[a] + cb[a]) - (cr[b] + cg[b] + cb[b]));
+        for (let k = 0; k < K; k++) { const c = order[Math.floor((k + 0.5) / K * order.length)]; cen[k] = [cr[c], cg[c], cb[c]]; }
+        const asg = new Int32Array(idx.length);
+        for (let it = 0; it < 10; it++) {
+          const acc = cen.map(() => [0, 0, 0, 0]);
+          idx.forEach((c, n) => {
+            let best = 0, bd = Infinity;
+            for (let k = 0; k < K; k++) {
+              const d0 = cr[c] - cen[k][0], d1 = cg[c] - cen[k][1], d2 = cb[c] - cen[k][2], d = d0 * d0 + d1 * d1 + d2 * d2;
+              if (d < bd) { bd = d; best = k; }
+            }
+            asg[n] = best; const a = acc[best]; a[0] += cr[c]; a[1] += cg[c]; a[2] += cb[c]; a[3]++;
+          });
+          acc.forEach((a, k) => { if (a[3]) cen[k] = [a[0] / a[3], a[1] / a[3], a[2] / a[3]]; });
+        }
+        idx.forEach((c, n) => { const k = asg[n]; cr[c] = cen[k][0]; cg[c] = cen[k][1]; cb[c] = cen[k][2]; });
+      }
+    }
+
+    // 3) Dibujar puntadas
+    const t = p.grosor / 2, R = p.relieve, J = p.irregular, m = 0.07;
+    const thread = (d, along, twists) => {           // brillo de un hilo: d = distancia al centro / medio grosor
+      const sh = 1 + R * (0.22 * (1 - d * d) - 0.3 * d * d * d);
+      const tw = 1 - R * 0.14 * (0.5 + 0.5 * Math.sin(along * Math.PI * 2 * twists + d * 2.2));
+      return sh * tw;
+    };
+    for (let y = 0; y < h; y++) {
+      const gy = Math.floor(y / s);
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4, gx = Math.floor(x / s), c = gy * gw + gx;
+        let u = x / s - gx, v = y / s - gy;
+        let col = null, f = 1;
+        if (on[c]) {
+          // irregularidad por celda
+          const ju = (hash2(gx, gy, seed) - 0.5) * 0.12 * J, jv = (hash2(gx, gy, seed + 1) - 0.5) * 0.12 * J;
+          const rot = (hash2(gx, gy, seed + 2) - 0.5) * 0.25 * J;
+          let uu = u - 0.5 - ju, vv = v - 0.5 - jv;
+          const ur = uu + vv * rot, vr = vv - uu * rot;
+          uu = ur + 0.5; vv = vr + 0.5;
+          const inside = uu > m && uu < 1 - m && vv > m && vv < 1 - m;
+          const tone = 1 + (hash2(gx, gy, seed + 3) - 0.5) * 0.08 * J;
+          if (p.estilo === 'satin') {
+            const lines = 3, q = uu * lines, sv = q - Math.floor(q), d = Math.abs(sv - 0.5) / 0.45;
+            if (vv > m * 0.6 && vv < 1 - m * 0.6 && d < 1) { col = c; f = thread(d, vv, 1.5) * tone; }
+          } else if (inside) {
+            const d2 = Math.abs(uu + vv - 1) / Math.SQRT2 / t;  // brazo "/" (arriba)
+            const d1 = Math.abs(uu - vv) / Math.SQRT2 / t;      // brazo "\" (abajo)
+            if (d2 < 1) { col = c; f = thread(d2, (uu - vv + 1) / 2, 3) * tone; }
+            else if (p.estilo === 'cruz' && d1 < 1) {
+              col = c; f = thread(d1, (uu + vv) / 2, 3) * tone;
+              if (d2 < 1.5) f *= 1 - R * 0.35 * (1.5 - d2) / 0.5;    // sombra del brazo de arriba
+            }
+          }
+        }
+        if (col !== null) {
+          data[o] = cr[col] * f; data[o + 1] = cg[col] * f; data[o + 2] = cb[col] * f; data[o + 3] = 255;
+        } else if (ctx.transparentPaper) {
+          data[o + 3] = 0;
+        } else {
+          let ft = 1 - 0.04 * hash2(x, y, seed + 9);
+          if (p.agujeros) {
+            const du = Math.min(u, 1 - u), dv = Math.min(v, 1 - v);
+            const dd = Math.sqrt(du * du + dv * dv);
+            if (dd < 0.13) ft *= 0.72 + 0.28 * dd / 0.13;
+            else if (du < 0.04 || dv < 0.04) ft *= 0.94;
+          }
+          data[o] = tela[0] * ft; data[o + 1] = tela[1] * ft; data[o + 2] = tela[2] * ft; data[o + 3] = 255;
+        }
+      }
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   AYUDANTES COMPARTIDOS (efectos de la tanda 2)
+   ===================================================================== */
+const smoothstep = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+const fract = v => v - Math.floor(v);
+const luma = (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b;
+
+// Pliegues de papel: líneas casi rectas alternando verticales y horizontales
+function makeFolds(n, w, h, seed) {
+  const folds = [];
+  for (let k = 0; k < n; k++) {
+    const vert = k % 2 === 0;
+    folds.push({
+      vert,
+      pos: (0.15 + 0.7 * hash2(k, 1, seed + 401)) * (vert ? w : h),
+      skew: (hash2(k, 2, seed + 401) - 0.5) * 0.04,
+      side: hash2(k, 3, seed + 401) < 0.5 ? -1 : 1,
+    });
+  }
+  return folds;
+}
+function foldFactor(x, y, folds, core, shade, k) {
+  let f = 1;
+  for (const fd of folds) {
+    const d = fd.vert ? x - (fd.pos + y * fd.skew) : y - (fd.pos + x * fd.skew);
+    const ad = Math.abs(d);
+    f *= 1 - k * 0.45 * Math.exp(-(ad / core) * (ad / core));
+    if (d * fd.side > 0) f *= 1 - k * 0.12 * Math.exp(-ad / shade);
+    else f *= 1 + k * 0.05 * Math.exp(-ad / shade);
+  }
+  return f;
+}
+
+// Muestra bilineal RGBA de un Uint8ClampedArray
+function sampleBilinear(d, w, h, x, y, out) {
+  if (w < 2 || h < 2) { const i = 0; out[0] = d[i]; out[1] = d[i + 1]; out[2] = d[i + 2]; out[3] = d[i + 3]; return out; }
+  x = x < 0 ? 0 : x > w - 1.001 ? w - 1.001 : x;
+  y = y < 0 ? 0 : y > h - 1.001 ? h - 1.001 : y;
+  const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0;
+  const i00 = (y0 * w + x0) * 4, i10 = i00 + 4, i01 = i00 + w * 4, i11 = i01 + 4;
+  for (let k = 0; k < 4; k++)
+    out[k] = (d[i00 + k] * (1 - fx) + d[i10 + k] * fx) * (1 - fy) + (d[i01 + k] * (1 - fx) + d[i11 + k] * fx) * fy;
+  return out;
+}
+
+// Desenfoque rápido (3 pasadas de caja ≈ gaussiano). Devuelve Float32Array RGB 0..255
+function blurRGB(d, w, h, radius) {
+  const n = w * h;
+  let a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = d[i * 4]; a[i * 3 + 1] = d[i * 4 + 1]; a[i * 3 + 2] = d[i * 4 + 2]; }
+  if (radius < 0.5) return a;
+  const R = Math.max(1, Math.round(radius / 1.7));
+  let b = new Float32Array(n * 3);
+  const inv = 1 / (2 * R + 1);
+  for (let pass = 0; pass < 3; pass++) {
+    for (let y = 0; y < h; y++) for (let k = 0; k < 3; k++) {
+      let acc = 0;
+      for (let i = -R; i <= R; i++) acc += a[(y * w + Math.min(w - 1, Math.max(0, i))) * 3 + k];
+      for (let x = 0; x < w; x++) {
+        b[(y * w + x) * 3 + k] = acc * inv;
+        const xo = Math.max(0, x - R), xi = Math.min(w - 1, x + R + 1);
+        acc += a[(y * w + xi) * 3 + k] - a[(y * w + xo) * 3 + k];
+      }
+    }
+    for (let x = 0; x < w; x++) for (let k = 0; k < 3; k++) {
+      let acc = 0;
+      for (let i = -R; i <= R; i++) acc += b[(Math.min(h - 1, Math.max(0, i)) * w + x) * 3 + k];
+      for (let y = 0; y < h; y++) {
+        a[(y * w + x) * 3 + k] = acc * inv;
+        const yo = Math.max(0, y - R), yi = Math.min(h - 1, y + R + 1);
+        acc += b[(yi * w + x) * 3 + k] - b[(yo * w + x) * 3 + k];
+      }
+    }
+  }
+  return a;
+}
+
+// k-means de colores. pts: array de [r,g,b]. Devuelve centroides.
+function kmeansColors(pts, K, iters) {
+  if (!pts.length) return [];
+  K = Math.min(K, pts.length);
+  const sorted = pts.slice().sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+  const cen = [];
+  for (let k = 0; k < K; k++) cen.push(sorted[Math.floor((k + 0.5) / K * sorted.length)].slice());
+  for (let it = 0; it < (iters || 10); it++) {
+    const acc = cen.map(() => [0, 0, 0, 0]);
+    for (const p of pts) { const k = nearestColor(cen, p[0], p[1], p[2]); const a = acc[k]; a[0] += p[0]; a[1] += p[1]; a[2] += p[2]; a[3]++; }
+    acc.forEach((a, k) => { if (a[3]) cen[k] = [a[0] / a[3], a[1] / a[3], a[2] / a[3]]; });
+  }
+  return cen;
+}
+function nearestColor(cen, r, g, b) {
+  let best = 0, bd = Infinity;
+  for (let k = 0; k < cen.length; k++) {
+    const d0 = r - cen[k][0], d1 = g - cen[k][1], d2 = b - cen[k][2], d = d0 * d0 + d1 * d1 + d2 * d2;
+    if (d < bd) { bd = d; best = k; }
+  }
+  return best;
+}
+
+// Inversa de una matriz chica (Gauss-Jordan)
+function invertMatrix(M) {
+  const n = M.length, A = M.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]];
+    const v = A[c][c] || 1e-9;
+    for (let j = 0; j < 2 * n; j++) A[c][j] /= v;
+    for (let r = 0; r < n; r++) if (r !== c) { const f = A[r][c]; for (let j = 0; j < 2 * n; j++) A[r][j] -= f * A[c][j]; }
+  }
+  return A.map(row => row.slice(n));
+}
+
+// Tono (0..360) de un color RGB 0..1
+function hueOf(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  if (d === 0) return 0;
+  let hh = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  hh *= 60; return hh < 0 ? hh + 360 : hh;
+}
+
+/* =====================================================================
+   1) EDITORIAL ANTIGUO
+   ===================================================================== */
+registerEffect({
+  id: 'editorial',
+  name: 'Editorial antiguo',
+  description: 'Look de revista vieja: tono de película, gradación naranja/violeta, grano y borde de papel recortado.',
+  params: [
+    { type: 'header', label: 'Película' },
+    { key: 'contraste',  label: 'Contraste',          type: 'range', min: 0.5, max: 2, step: 0.01, default: 1.1 },
+    { key: 'calidez',    label: 'Calidez',            type: 'range', min: -1, max: 1, step: 0.01, default: 0.35 },
+    { key: 'negros',     label: 'Levantar negros',    type: 'range', min: 0, max: 0.3, step: 0.01, default: 0.08 },
+    { key: 'luces',      label: 'Comprimir luces',    type: 'range', min: 0, max: 0.3, step: 0.01, default: 0.06 },
+    { key: 'saturacion', label: 'Saturación',         type: 'range', min: 0, max: 2, step: 0.01, default: 0.85 },
+    { type: 'header', label: 'Gradación de color' },
+    { key: 'tonoSombras',  label: 'Tono de sombras',   type: 'color', default: '#d9822b' },
+    { key: 'fSombras',     label: 'Fuerza sombras',    type: 'range', min: 0, max: 1, step: 0.01, default: 0.35 },
+    { key: 'tonoLuces',    label: 'Tono de luces',     type: 'color', default: '#9b7bd6' },
+    { key: 'fLuces',       label: 'Fuerza luces',      type: 'range', min: 0, max: 1, step: 0.01, default: 0.25 },
+    { key: 'piel',         label: 'Equilibrar tonos de piel', type: 'range', min: -1, max: 1, step: 0.01, default: 0.3 },
+    { type: 'header', label: 'Grano' },
+    { key: 'grano',     label: 'Grano de película', type: 'range', min: 0, max: 0.5, step: 0.01, default: 0.14 },
+    { key: 'tamGrano',  label: 'Tamaño del grano',  type: 'range', min: 0.5, max: 4, step: 0.1, default: 1.3, unit: 'px' },
+    { type: 'header', label: 'Papel' },
+    { key: 'borde',     label: 'Borde',             type: 'range', min: 0, max: 0.2, step: 0.005, default: 0.06 },
+    { key: 'colorBorde', label: 'Color del borde',  type: 'color', default: '#f6f3ee', showIf: p => p.borde > 0 },
+    { key: 'recorte',   label: 'Recorte irregular', type: 'range', min: 0, max: 1, step: 0.01, default: 0.4, showIf: p => p.borde > 0 },
+    { key: 'pliegues',  label: 'Pliegues',          type: 'range', min: 0, max: 4, step: 1, default: 2 },
+    { key: 'semilla',   label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 8 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    const ts = hexToRgb(p.tonoSombras).map(v => v / 255), tl = hexToRgb(p.tonoLuces).map(v => v / 255);
+    const bc = hexToRgb(p.colorBorde);
+    const gs = Math.max(0.35, p.tamGrano * sc);
+    const m = p.borde * Math.min(w, h);
+    const folds = makeFolds(p.pliegues, w, h, seed);
+    const core = Math.max(0.6, 1.2 * sc), shade = Math.max(2, 30 * sc);
+    const es = Math.max(2, 18 * sc);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4, a = data[o + 3] / 255;
+      let c = [data[o] / 255 * a + 1 - a, data[o + 1] / 255 * a + 1 - a, data[o + 2] / 255 * a + 1 - a];
+      // calidez
+      c[0] += 0.06 * p.calidez; c[2] -= 0.06 * p.calidez;
+      // contraste y curva de película
+      for (let k = 0; k < 3; k++) {
+        let v = (c[k] - 0.5) * p.contraste + 0.5;
+        c[k] = p.negros + clamp01(v) * (1 - p.negros - p.luces);
+      }
+      let l = luma(c[0], c[1], c[2]);
+      for (let k = 0; k < 3; k++) c[k] = l + (c[k] - l) * p.saturacion;
+      // piel: suavizar rojos/naranjas
+      if (p.piel !== 0) {
+        const hu = hueOf(clamp01(c[0]), clamp01(c[1]), clamp01(c[2]));
+        const dh = Math.min(Math.abs(hu - 25), 360 - Math.abs(hu - 25));
+        const wgt = Math.exp(-(dh / 22) * (dh / 22));
+        for (let k = 0; k < 3; k++) c[k] += (l - c[k]) * p.piel * 0.3 * wgt;
+        c[1] += p.piel * 0.02 * wgt;
+      }
+      // gradación: sombras y luces
+      l = clamp01(luma(c[0], c[1], c[2]));
+      const ws = (1 - l) * (1 - l), wl = l * l;
+      for (let k = 0; k < 3; k++) c[k] += (ts[k] - 0.5) * p.fSombras * ws * 0.5 + (tl[k] - 0.5) * p.fLuces * wl * 0.5;
+      // grano
+      if (p.grano > 0) {
+        const amp = p.grano * (4 * l * (1 - l) + 0.25);
+        const n = valueNoise(x / gs, y / gs, seed + 21) - 0.5;
+        for (let k = 0; k < 3; k++) c[k] += n * amp + (hash2(x, y, seed + 30 + k) - 0.5) * amp * 0.25;
+      }
+      // borde con recorte irregular
+      let isBorder = false;
+      if (m > 0) {
+        const jit = p.recorte * m * 0.3;
+        const nl = (fbm(0.5, y / es, seed + 61) - 0.5) * 2 * jit, nr = (fbm(1.5, y / es, seed + 62) - 0.5) * 2 * jit;
+        const nt = (fbm(x / es, 2.5, seed + 63) - 0.5) * 2 * jit, nb = (fbm(x / es, 3.5, seed + 64) - 0.5) * 2 * jit;
+        const dl = x - (m + nl), dr = (w - m + nr) - x, dt = y - (m + nt), db = (h - m + nb) - y;
+        const inside = Math.min(dl, dr, dt, db);
+        if (inside < 0) {
+          isBorder = true;
+          const tex = 1 - 0.05 * fbm(x / (30 * sc + 1), y / (30 * sc + 1), seed + 70);
+          // sombra que proyecta el recorte (abajo y a la derecha)
+          let sh = 1;
+          const sd = Math.max(1, 6 * sc);
+          if (dr < 0 && dr > -sd && dt > 0 && db > 0) sh = 0.85 + 0.15 * (-dr / sd);
+          if (db < 0 && db > -sd && dl > 0 && dr > 0) sh = Math.min(sh, 0.85 + 0.15 * (-db / sd));
+          c = [bc[0] / 255 * tex * sh, bc[1] / 255 * tex * sh, bc[2] / 255 * tex * sh];
+        }
+      }
+      if (folds.length) { const f = foldFactor(x, y, folds, core, shade, 0.5); c = c.map(v => v * f); }
+      if (ctx.transparentPaper && isBorder) { data[o + 3] = 0; continue; }
+      data[o] = c[0] * 255; data[o + 1] = c[1] * 255; data[o + 2] = c[2] * 255; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   2) COPIA DESTEÑIDA (Faded copy)
+   ===================================================================== */
+registerEffect({
+  id: 'faded',
+  name: 'Copia desteñida',
+  description: 'Brillo difuso en Trama, textura grunge, trama de puntos de color y tinte frío.',
+  params: [
+    { type: 'header', label: 'Brillo difuso' },
+    { key: 'blur',     label: 'Desenfoque',         type: 'range', min: 0, max: 40, step: 0.5, default: 8, unit: 'px' },
+    { key: 'glow',     label: 'Opacidad (Trama)',   type: 'range', min: 0, max: 1, step: 0.01, default: 0.45 },
+    { type: 'header', label: 'Textura grunge' },
+    { key: 'grunge',   label: 'Grunge',             type: 'range', min: 0, max: 1, step: 0.01, default: 0.35 },
+    { key: 'escGrunge', label: 'Escala del grunge', type: 'range', min: 10, max: 300, step: 1, default: 80, unit: 'px' },
+    { key: 'rayones',  label: 'Rayones',            type: 'range', min: 0, max: 1, step: 0.01, default: 0.3 },
+    { key: 'pliegues', label: 'Pliegues',           type: 'range', min: 0, max: 4, step: 1, default: 1 },
+    { type: 'header', label: 'Trama (dither)' },
+    { key: 'trama',  label: 'Tipo', type: 'select', default: 'puntos', options: [
+      ['puntos', 'Puntos de semitono'], ['bayer', 'Dither ordenado (Bayer)'], ['ninguna', 'Sin trama'],
+    ]},
+    { key: 'tam',     label: 'Tamaño de trama',   type: 'range', min: 2, max: 30, step: 0.5, default: 6, unit: 'px', showIf: p => p.trama !== 'ninguna' },
+    { key: 'niveles', label: 'Niveles por color', type: 'range', min: 2, max: 8, step: 1, default: 4, showIf: p => p.trama !== 'ninguna' },
+    { key: 'angulo',  label: 'Ángulo',            type: 'range', min: 0, max: 90, step: 1, default: 45, unit: '°', showIf: p => p.trama === 'puntos' },
+    { type: 'header', label: 'Color' },
+    { key: 'contraste',  label: 'Contraste',       type: 'range', min: 0.5, max: 2, step: 0.01, default: 1.15 },
+    { key: 'desvanecer', label: 'Desvanecer negros', type: 'range', min: 0, max: 0.5, step: 0.01, default: 0.12 },
+    { key: 'tinte',      label: 'Tinte',           type: 'color', default: '#6f9fd8' },
+    { key: 'fTinte',     label: 'Fuerza del tinte', type: 'range', min: 0, max: 1, step: 0.01, default: 0.3 },
+    { key: 'semilla',    label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 4 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    // base con transparencia sobre blanco
+    for (let o = 0; o < data.length; o += 4) {
+      const a = data[o + 3] / 255;
+      for (let k = 0; k < 3; k++) data[o + k] = data[o + k] * a + 255 * (1 - a);
+      data[o + 3] = 255;
+    }
+    const bl = p.glow > 0 && p.blur > 0 ? blurRGB(data, w, h, p.blur * sc) : null;
+    const tint = hexToRgb(p.tinte).map(v => v / 255), tl = Math.max(0.05, luma(tint[0], tint[1], tint[2]));
+    const es = Math.max(2, p.escGrunge * sc), rs = Math.max(1, 1.5 * sc);
+    const cell = Math.max(1, p.tam * sc), n = Math.max(2, p.niveles | 0);
+    const an = p.angulo * Math.PI / 180, ca = Math.cos(an), sa = Math.sin(an), TAU = Math.PI * 2;
+    const folds = makeFolds(p.pliegues, w, h, seed);
+    const core = Math.max(0.6, 1.2 * sc), shade = Math.max(2, 30 * sc);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, o = i * 4;
+      let c = [data[o] / 255, data[o + 1] / 255, data[o + 2] / 255];
+      // brillo difuso en modo Trama
+      if (bl) for (let k = 0; k < 3; k++) { const s = bl[i * 3 + k] / 255; const scr = c[k] + s - c[k] * s; c[k] += (scr - c[k]) * p.glow; }
+      // contraste
+      for (let k = 0; k < 3; k++) c[k] = (c[k] - 0.5) * p.contraste + 0.5;
+      // grunge en Trama: motas claras + rayones
+      let g = 0;
+      if (p.grunge > 0) {
+        const nn = fbm(x / es, y / es, seed + 3);
+        g = smoothstep(0.6, 0.85, nn) * p.grunge * 0.7;
+        if (hash2(x >> 1, y >> 1, seed + 4) < p.grunge * 0.008) g = Math.max(g, 0.8);
+      }
+      if (p.rayones > 0) {
+        const col = Math.floor((x + y * 0.06) / rs);
+        if (hash2(col, 0, seed + 5) > 1 - p.rayones * 0.015) g = Math.max(g, 0.5 * smoothstep(0.45, 0.7, fbm(col, y / (60 * sc + 1), seed + 6)));
+      }
+      if (g > 0) for (let k = 0; k < 3; k++) c[k] = 1 - (1 - clamp01(c[k])) * (1 - g);
+      // tinte frío y desvanecer
+      const l = luma(c[0], c[1], c[2]);
+      for (let k = 0; k < 3; k++) {
+        c[k] += (l * tint[k] / tl - c[k]) * p.fTinte;
+        c[k] = p.desvanecer + clamp01(c[k]) * (1 - p.desvanecer);
+      }
+      // trama de puntos de color
+      if (p.trama !== 'ninguna') {
+        let t;
+        if (p.trama === 'puntos') {
+          const u = (x * ca + y * sa) / cell, v = (-x * sa + y * ca) / cell;
+          t = 1 - (0.5 + 0.25 * (Math.cos(TAU * u) + Math.cos(TAU * v)));
+        } else t = BAYER8[(Math.floor(y / cell) & 7) * 8 + (Math.floor(x / cell) & 7)];
+        for (let k = 0; k < 3; k++) c[k] = Math.min(n - 1, Math.floor(clamp01(c[k]) * (n - 1) + t)) / (n - 1);
+      }
+      if (folds.length) { const f = foldFactor(x, y, folds, core, shade, 0.45); c = c.map(v => v * f); }
+      data[o] = c[0] * 255; data[o + 1] = c[1] * 255; data[o + 2] = c[2] * 255;
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   3) PINTURA EN AEROSOL (Spray paint)
+   ===================================================================== */
+registerEffect({
+  id: 'spray',
+  name: 'Pintura en aerosol',
+  description: 'Mapa de colores con grano de spray, grumos y salpicaduras. El color más claro hace de fondo.',
+  params: [
+    { type: 'header', label: 'Colores (de oscuro a claro)' },
+    { key: 'n',  label: 'Cantidad de colores', type: 'range', min: 2, max: 5, step: 1, default: 4 },
+    { key: 'c1', label: 'Color 1 (sombras)', type: 'color', default: '#141414' },
+    { key: 'c2', label: 'Color 2', type: 'color', default: '#d7261e' },
+    { key: 'c3', label: 'Color 3', type: 'color', default: '#f08a24', showIf: p => p.n >= 3 },
+    { key: 'c4', label: 'Color 4', type: 'color', default: '#ffffff', showIf: p => p.n >= 4 },
+    { key: 'c5', label: 'Color 5', type: 'color', default: '#ffffff', showIf: p => p.n >= 5 },
+    { type: 'header', label: 'Tono' },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.5, max: 3, step: 0.05, default: 1.5 },
+    { key: 'brillo',    label: 'Brillo',    type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0 },
+    { type: 'header', label: 'Spray' },
+    { key: 'gota',     label: 'Tamaño de gota', type: 'range', min: 0.5, max: 6, step: 0.1, default: 1.2, unit: 'px' },
+    { key: 'disp',     label: 'Dispersión',     type: 'range', min: 0, max: 0.6, step: 0.01, default: 0.25 },
+    { key: 'grumos',   label: 'Grumos',         type: 'range', min: 0, max: 1, step: 0.01, default: 0.4 },
+    { key: 'escGrumos', label: 'Escala de grumos', type: 'range', min: 5, max: 100, step: 1, default: 25, unit: 'px', showIf: p => p.grumos > 0 },
+    { key: 'salpic',   label: 'Salpicaduras',   type: 'range', min: 0, max: 1, step: 0.01, default: 0.3 },
+    { key: 'semilla',  label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 12 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    const N = Math.max(2, p.n | 0);
+    const cols = [p.c1, p.c2, p.c3, p.c4, p.c5].slice(0, N).map(hexToRgb);
+    const gs = Math.max(0.35, p.gota * sc), cs = Math.max(1, p.escGrumos * sc);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4, a = data[o + 3] / 255;
+      let l = luma(data[o], data[o + 1], data[o + 2]) / 255;
+      l = l * a + (1 - a);
+      l = (l - 0.5) * p.contraste + 0.5 + p.brillo;
+      let nz = hash2(Math.floor(x / gs), Math.floor(y / gs), seed);
+      if (p.grumos > 0) nz = nz * (1 - p.grumos) + fbm(x / cs, y / cs, seed + 7) * p.grumos;
+      let idx = Math.round(clamp01(l + (nz - 0.5) * p.disp * 2) * (N - 1));
+      idx = Math.max(0, Math.min(N - 1, idx));
+      if (p.salpic > 0 && idx >= N - 2 &&
+          hash2(Math.floor(x / (gs * 1.4)), Math.floor(y / (gs * 1.4)), seed + 9) < p.salpic * 0.03 * (1.2 - clamp01(l) * 0.6))
+        idx = hash2(x, y, seed + 10) < 0.5 ? 0 : Math.min(1, N - 1);
+      if (ctx.transparentPaper && idx === N - 1) { data[o + 3] = 0; continue; }
+      const c = cols[idx];
+      data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2]; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   4) TICKET ESCANEADO (Receipt scans)
+   ===================================================================== */
+registerEffect({
+  id: 'ticket',
+  name: 'Ticket escaneado',
+  description: 'Impresión térmica a dos colores con artefactos, movimiento, temblor de cámara, bandas corridas y bordes rasgados.',
+  params: [
+    { type: 'header', label: 'Imagen' },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.5, max: 3, step: 0.05, default: 1.6 },
+    { key: 'brillo',    label: 'Brillo',    type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0 },
+    { type: 'header', label: 'Trama (2 colores)' },
+    { key: 'trama', label: 'Patrón', type: 'select', default: 'fs', options: [
+      ['fs', 'Difusión de error'], ['bayer', 'Dither ordenado (Bayer)'], ['grano', 'Grano'],
+      ['lineas', 'Líneas horizontales (térmica)'], ['puntos', 'Puntos'],
+    ]},
+    { key: 'tam',   label: 'Tamaño de trama', type: 'range', min: 1, max: 10, step: 0.5, default: 1.5, unit: 'px' },
+    { key: 'tinta', label: 'Color de tinta',  type: 'color', default: '#121212' },
+    { key: 'papel', label: 'Color de papel',  type: 'color', default: '#f2f1ec' },
+    { type: 'header', label: 'Artefactos' },
+    { key: 'textura',  label: 'Textura de impresión', type: 'range', min: 0, max: 1, step: 0.01, default: 0.35 },
+    { key: 'temblor',  label: 'Temblor de cámara',     type: 'range', min: 0, max: 30, step: 0.5, default: 6, unit: 'px' },
+    { key: 'dirTemblor', label: 'Dirección del temblor', type: 'range', min: 0, max: 180, step: 1, default: 20, unit: '°', showIf: p => p.temblor > 0 },
+    { key: 'bandas',   label: 'Bandas corridas',       type: 'range', min: 0, max: 6, step: 1, default: 1 },
+    { key: 'corrimiento', label: 'Corrimiento de bandas', type: 'range', min: 0, max: 120, step: 1, default: 25, unit: 'px', showIf: p => p.bandas > 0 },
+    { key: 'elastico', label: 'Grilla elástica',       type: 'range', min: 0, max: 1, step: 0.01, default: 0 },
+    { key: 'movimiento', label: 'Desenfoque de movimiento', type: 'range', min: 0, max: 80, step: 1, default: 0, unit: 'px' },
+    { key: 'dirMov',   label: 'Dirección del movimiento', type: 'range', min: 0, max: 180, step: 1, default: 0, unit: '°', showIf: p => p.movimiento > 0 },
+    { key: 'rasgado',  label: 'Bordes rasgados (arriba y abajo)', type: 'range', min: 0, max: 1, step: 0.01, default: 0 },
+    { key: 'fondoMesa', label: 'Color detrás del papel', type: 'color', default: '#d9d6cf', showIf: p => p.rasgado > 0 },
+    { key: 'semilla',  label: 'Semilla aleatoria',     type: 'range', min: 1, max: 999, step: 1, default: 6 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0, N = w * h;
+    const src = data.slice();
+    const tinta = hexToRgb(p.tinta), papel = hexToRgb(p.papel);
+    const bands = [];
+    for (let k = 0; k < p.bandas; k++) {
+      const y0 = hash2(k, 0, seed + 81) * h, bh = (0.04 + 0.12 * hash2(k, 1, seed + 81)) * h;
+      bands.push([y0, y0 + bh, (hash2(k, 2, seed + 81) < 0.5 ? -1 : 1) * p.corrimiento * sc * (0.5 + hash2(k, 3, seed + 81))]);
+    }
+    const an = p.dirTemblor * Math.PI / 180, ox = Math.cos(an) * p.temblor * sc, oy = Math.sin(an) * p.temblor * sc;
+    const es = Math.max(4, 90 * sc), ea = p.elastico * 25 * sc;
+    const mv = p.movimiento * sc, am = p.dirMov * Math.PI / 180, mvx = Math.cos(am) * mv, mvy = Math.sin(am) * mv;
+    const px = [0, 0, 0, 0];
+    const lumAt = (sx, sy) => {
+      sampleBilinear(src, w, h, sx, sy, px);
+      const a = px[3] / 255;
+      return luma(px[0], px[1], px[2]) / 255 * a + (1 - a);
+    };
+    // 1) luminancia con deformaciones
+    const L = new Float32Array(N);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let sx = x, sy = y;
+      for (const b of bands) if (y >= b[0] && y < b[1]) sx += b[2];
+      if (ea > 0) { sx += (fbm(x / es, y / es, seed + 91) - 0.5) * 2 * ea; sy += (fbm(x / es, y / es, seed + 92) - 0.5) * 2 * ea; }
+      let l;
+      if (mv > 0) { l = 0; for (let q = 0; q < 9; q++) { const t = q / 8 - 0.5; l += lumAt(sx + mvx * t, sy + mvy * t); } l /= 9; }
+      else l = lumAt(sx, sy);
+      if (p.temblor > 0) l = l * 0.55 + lumAt(sx + ox, sy + oy) * 0.45;
+      l = (l - 0.5) * p.contraste + 0.5 + p.brillo;
+      if (p.textura > 0) {
+        const st = fbm(x / (400 * sc + 1), y / (2 * sc + 0.5), seed + 93);
+        l += p.textura * 0.3 * Math.max(0, st - 0.55) * 4;
+        if (hash2(x, y, seed + 94) < p.textura * 0.003) l = 0;
+      }
+      L[y * w + x] = clamp01(l);
+    }
+    // 2) trama a dos colores
+    const g = Math.max(1, p.tam * sc);
+    const ink = new Uint8Array(N);
+    if (p.trama === 'fs') {
+      const gw = Math.ceil(w / g), gh = Math.ceil(h / g), G = new Float32Array(gw * gh);
+      for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++)
+        G[gy * gw + gx] = 1 - L[Math.min(h - 1, Math.floor((gy + 0.5) * g)) * w + Math.min(w - 1, Math.floor((gx + 0.5) * g))];
+      const B = new Uint8Array(gw * gh);
+      for (let gy = 0; gy < gh; gy++) {
+        const ltr = (gy & 1) === 0, dir = ltr ? 1 : -1;
+        for (let q = 0; q < gw; q++) {
+          const gx = ltr ? q : gw - 1 - q, j = gy * gw + gx, nv = G[j] >= 0.5 ? 1 : 0, err = G[j] - nv;
+          B[j] = nv;
+          const nx = gx + dir;
+          if (nx >= 0 && nx < gw) G[j + dir] += err * 7 / 16;
+          if (gy + 1 < gh) {
+            const r = j + gw;
+            if (gx - dir >= 0 && gx - dir < gw) G[r - dir] += err * 3 / 16;
+            G[r] += err * 5 / 16;
+            if (nx >= 0 && nx < gw) G[r + dir] += err / 16;
+          }
+        }
+      }
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) ink[y * w + x] = B[Math.floor(y / g) * gw + Math.floor(x / g)];
+    } else {
+      const TAU = Math.PI * 2;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = y * w + x, d = 1 - L[i];
+        let t;
+        if (p.trama === 'bayer') t = BAYER8[(Math.floor(y / g) & 7) * 8 + (Math.floor(x / g) & 7)];
+        else if (p.trama === 'grano') t = hash2(Math.floor(x / g), Math.floor(y / g), seed);
+        else if (p.trama === 'lineas') t = 1 - (0.5 + 0.5 * Math.cos(TAU * y / (g * 2)));
+        else t = 1 - (0.5 + 0.25 * (Math.cos(TAU * (x + y) * 0.7071 / (g * 3)) + Math.cos(TAU * (y - x) * 0.7071 / (g * 3))));
+        ink[i] = d > t ? 1 : 0;
+      }
+    }
+    const mesa = hexToRgb(p.fondoMesa), rm = p.rasgado * 0.06 * h, rs = Math.max(1, 5 * sc);
+    for (let i = 0; i < N; i++) {
+      const o = i * 4;
+      if (rm > 0) {
+        const x = i % w, y = (i / w) | 0;
+        const top = rm + (fbm(x / rs, 0.5, seed + 71) - 0.5) * rm * 1.2 + (hash2(x, 0, seed + 72) - 0.5) * rm * 0.25;
+        const bot = h - rm - (fbm(x / rs, 1.5, seed + 73) - 0.5) * rm * 1.2 - (hash2(x, 1, seed + 74) - 0.5) * rm * 0.25;
+        if (y < top || y > bot) {
+          if (ctx.transparentPaper) { data[o + 3] = 0; continue; }
+          data[o] = mesa[0]; data[o + 1] = mesa[1]; data[o + 2] = mesa[2]; data[o + 3] = 255; continue;
+        }
+      }
+      if (ink[i]) { data[o] = tinta[0]; data[o + 1] = tinta[1]; data[o + 2] = tinta[2]; data[o + 3] = 255; }
+      else if (ctx.transparentPaper) data[o + 3] = 0;
+      else { data[o] = papel[0]; data[o + 1] = papel[1]; data[o + 2] = papel[2]; data[o + 3] = 255; }
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   5) GARABATO (Scribble)
+   ===================================================================== */
+registerEffect({
+  id: 'garabato',
+  name: 'Garabato',
+  description: 'La imagen redibujada con trazos de lápiz de color que siguen curvas, con desplazamiento de textura.',
+  params: [
+    { type: 'header', label: 'Trazos' },
+    { key: 'densidad',  label: 'Densidad de trazos', type: 'range', min: 0, max: 1.5, step: 0.01, default: 0.9 },
+    { key: 'espaciado', label: 'Tamaño de trazos', type: 'range', min: 2, max: 20, step: 0.5, default: 4, unit: 'px' },
+    { key: 'grosor',    label: 'Grosor del trazo',    type: 'range', min: 0.1, max: 1.5, step: 0.01, default: 0.6 },
+    { key: 'curvas',    label: 'Escala de la dirección', type: 'range', min: 10, max: 600, step: 1, default: 160, unit: 'px' },
+    { key: 'cruzado',   label: 'Segunda capa cruzada en las sombras', type: 'checkbox', default: true },
+    { key: 'desplaz',   label: 'Desplazamiento del color', type: 'range', min: 0, max: 30, step: 0.5, default: 6, unit: 'px' },
+    { key: 'relleno',   label: 'Relleno suave de fondo', type: 'range', min: 0, max: 1, step: 0.01, default: 0.25 },
+    { type: 'header', label: 'Color' },
+    { key: 'saturacion', label: 'Saturación', type: 'range', min: 0, max: 2, step: 0.01, default: 1.3 },
+    { key: 'pastel',    label: 'Pastel',     type: 'range', min: 0, max: 1, step: 0.01, default: 0.12 },
+    { key: 'niveles',   label: 'Posterizar (0 = no)', type: 'range', min: 0, max: 8, step: 1, default: 0 },
+    { key: 'papel',     label: 'Color de papel', type: 'color', default: '#fbfaf7' },
+    { key: 'borde',     label: 'Borde', type: 'range', min: 0, max: 0.2, step: 0.005, default: 0.05 },
+    { key: 'semilla',   label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 14 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    const src = data.slice();
+    const pap = hexToRgb(p.papel).map(v => v / 255);
+    const sp = Math.max(1, p.espaciado * sc), F = Math.max(2, p.curvas * sc), dsp = p.desplaz * sc;
+    const cs = sp * 6;                                   // tamaño de celda donde nacen los trazos
+    const th = Math.max(0.5, sp * p.grosor * 0.6);       // medio grosor del trazo
+    const m = p.borde * Math.min(w, h);
+    const nl = Math.max(0, p.niveles | 0);
+    const px = [0, 0, 0, 0];
+    const colorAt = (x, y) => {
+      sampleBilinear(src, w, h, x, y, px);
+      const a = px[3] / 255;
+      let c = [px[0] / 255 * a + (1 - a), px[1] / 255 * a + (1 - a), px[2] / 255 * a + (1 - a)];
+      const l = luma(c[0], c[1], c[2]);
+      for (let k = 0; k < 3; k++) { c[k] = l + (c[k] - l) * p.saturacion; c[k] = clamp01(c[k] + (1 - c[k]) * p.pastel); }
+      if (nl > 1) c = c.map(v => Math.round(v * (nl - 1)) / (nl - 1));
+      return { c, l, a };
+    };
+    // 1) Trazos por celda: cantidad según lo oscuro, dirección según un campo suave
+    const gw = Math.ceil(w / cs) + 1, gh = Math.ceil(h / cs) + 1;
+    const cells = new Array(gw * gh);
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+      const list = [];
+      const ccx = (gx + 0.5) * cs, ccy = (gy + 0.5) * cs;
+      const info = colorAt(ccx, ccy), d = 1 - info.l;
+      const n = Math.round(7 * clamp01((0.3 + d * 0.9) * p.densidad));
+      const base = (fbm(ccx / F, ccy / F, seed) - 0.5) * Math.PI * 1.4;
+      for (let j = 0; j < n; j++) {
+        const r = q => hash2(gx * 7 + j, gy * 13 + q, seed);
+        const cx = (gx + r(1)) * cs, cy = (gy + r(2)) * cs;
+        const cross = p.cruzado && j % 2 === 1 && d > 0.35;
+        const ang = base + (r(3) - 0.5) * 0.8 + (cross ? Math.PI / 2 : 0);
+        const len = cs * (0.7 + 0.9 * r(4));
+        const col = colorAt(cx + (r(5) - 0.5) * 2 * dsp, cy + (r(6) - 0.5) * 2 * dsp);
+        const dk = 0.78 + 0.18 * col.l;                  // el lápiz es un poco más oscuro que el color
+        list.push({ x1: cx - Math.cos(ang) * len / 2, y1: cy - Math.sin(ang) * len / 2,
+                    dx: Math.cos(ang) * len, dy: Math.sin(ang) * len, len2: len * len,
+                    c: col.c.map(v => v * dk), a: col.a });
+      }
+      cells[gy * gw + gx] = list;
+    }
+    // 2) Pintar: para cada píxel, el trazo más cubriente de las celdas vecinas
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      if (m > 0 && (x < m || y < m || x >= w - m || y >= h - m)) {
+        if (ctx.transparentPaper) { data[o + 3] = 0; continue; }
+        data[o] = pap[0] * 255; data[o + 1] = pap[1] * 255; data[o + 2] = pap[2] * 255; data[o + 3] = 255; continue;
+      }
+      const gx = Math.floor(x / cs), gy = Math.floor(y / cs);
+      let best = 0, bc = null;
+      for (let yy = gy - 1; yy <= gy + 1; yy++) for (let xx = gx - 1; xx <= gx + 1; xx++) {
+        if (xx < 0 || yy < 0 || xx >= gw || yy >= gh) continue;
+        for (const st of cells[yy * gw + xx]) {
+          const t = clamp01(((x - st.x1) * st.dx + (y - st.y1) * st.dy) / st.len2);
+          const ex = x - (st.x1 + st.dx * t), ey = y - (st.y1 + st.dy * t);
+          const dist = Math.sqrt(ex * ex + ey * ey);
+          if (dist > th + 1) continue;
+          const taper = Math.min(1, t * 6, (1 - t) * 6);  // puntas finitas
+          const cov = clamp01(th * (0.4 + 0.6 * taper) - dist + 0.6) * st.a;
+          if (cov > best) { best = cov; bc = st.c; }
+        }
+      }
+      best *= 0.75 + 0.25 * hash2(x, y, seed + 77);       // textura de lápiz
+      const base = colorAt(x, y);
+      const bg = [0, 1, 2].map(k => pap[k] + (base.c[k] - pap[k]) * p.relleno * base.a);
+      if (ctx.transparentPaper) {
+        const al = clamp01(best + p.relleno * base.a * (1 - best));
+        if (al <= 0.02) { data[o + 3] = 0; continue; }
+        const c = bc && best > 0 ? bc : base.c;
+        data[o] = c[0] * 255; data[o + 1] = c[1] * 255; data[o + 2] = c[2] * 255; data[o + 3] = al * 255; continue;
+      }
+      for (let k = 0; k < 3; k++) data[o + k] = (bc ? bg[k] + (bc[k] - bg[k]) * best : bg[k]) * 255;
+      data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   6) CONFETI DE ESTRELLAS (Star confetti)
+   ===================================================================== */
+registerEffect({
+  id: 'estrellas',
+  name: 'Confeti de estrellas',
+  description: 'Esparce estrellas con el color de la imagen (o de una paleta). Queda genial con Risografía encima.',
+  params: [
+    { type: 'header', label: 'Estrellas' },
+    { key: 'densidad', label: 'Cantidad', type: 'range', min: 0, max: 30, step: 0.1, default: 6 },
+    { key: 'tamMin',   label: 'Tamaño mínimo', type: 'range', min: 3, max: 80, step: 1, default: 8, unit: 'px' },
+    { key: 'tamMax',   label: 'Tamaño máximo', type: 'range', min: 5, max: 160, step: 1, default: 28, unit: 'px' },
+    { key: 'puntas',   label: 'Puntas', type: 'range', min: 4, max: 8, step: 1, default: 5 },
+    { key: 'interior', label: 'Radio interior', type: 'range', min: 0.25, max: 0.75, step: 0.01, default: 0.45 },
+    { type: 'header', label: 'Color' },
+    { key: 'modoColor', label: 'Color de las estrellas', type: 'select', default: 'imagen', options: [
+      ['imagen', 'Tomado de la imagen'], ['claro', 'De la imagen, más claro'], ['paleta', 'Paleta'],
+    ]},
+    { key: 'variacion', label: 'Variación de brillo', type: 'range', min: 0, max: 1, step: 0.01, default: 0.35 },
+    { key: 'p1', label: 'Paleta 1', type: 'color', default: '#e8c15a', showIf: p => p.modoColor === 'paleta' },
+    { key: 'p2', label: 'Paleta 2', type: 'color', default: '#b3261e', showIf: p => p.modoColor === 'paleta' },
+    { key: 'p3', label: 'Paleta 3', type: 'color', default: '#ffffff', showIf: p => p.modoColor === 'paleta' },
+    { key: 'p4', label: 'Paleta 4', type: 'color', default: '#2a2a2a', showIf: p => p.modoColor === 'paleta' },
+    { key: 'sombra',  label: 'Sombra', type: 'range', min: 0, max: 1, step: 0.01, default: 0.4 },
+    { key: 'semilla', label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 9 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    const src = data.slice();
+    if (ctx.transparentPaper) for (let o = 3; o < data.length; o += 4) data[o] = 0;   // solo las estrellas
+    const W = w / sc, H = h / sc;
+    const count = Math.round(p.densidad * W * H / 10000);
+    const pal = [p.p1, p.p2, p.p3, p.p4].map(hexToRgb);
+    const n = Math.max(3, p.puntas | 0), sector = 2 * Math.PI / n, half = sector / 2;
+    const px = [0, 0, 0, 0];
+    const paint = (o, col, cov) => {
+      const a0 = data[o + 3] / 255, a = cov + a0 * (1 - cov);
+      if (a <= 0) return;
+      for (let k = 0; k < 3; k++) data[o + k] = (col[k] * cov + data[o + k] * a0 * (1 - cov)) / a;
+      data[o + 3] = a * 255;
+    };
+    for (let s = 0; s < count; s++) {
+      const cx = hash2(s, 1, seed) * w, cy = hash2(s, 2, seed) * h;
+      const tmin = Math.min(p.tamMin, p.tamMax), tmax = Math.max(p.tamMin, p.tamMax);
+      const R = (tmin + (tmax - tmin) * Math.pow(hash2(s, 3, seed), 2)) * sc / 2;
+      const r = R * p.interior, rot = hash2(s, 4, seed) * sector;
+      let col;
+      if (p.modoColor === 'paleta') col = pal[Math.floor(hash2(s, 5, seed) * 4) % 4].slice();
+      else {
+        sampleBilinear(src, w, h, cx, cy, px);
+        col = [px[0], px[1], px[2]];
+        if (p.modoColor === 'claro') col = col.map(v => v + (255 - v) * 0.45);
+      }
+      const vb = 1 + (hash2(s, 6, seed) - 0.5) * 2 * p.variacion * 0.6;
+      col = col.map(v => Math.max(0, Math.min(255, v * vb)));
+      // punto del contorno a lo largo de un rayo
+      const x1 = R, x2 = r * Math.cos(half), y2 = r * Math.sin(half);
+      const edge = phi => (x1 * y2) / (Math.cos(phi) * y2 - Math.sin(phi) * (x2 - x1));
+      const draw = (ox, oy, colr, alpha) => {
+        const x0 = Math.max(0, Math.floor(cx + ox - R - 1)), xe = Math.min(w - 1, Math.ceil(cx + ox + R + 1));
+        const y0 = Math.max(0, Math.floor(cy + oy - R - 1)), ye = Math.min(h - 1, Math.ceil(cy + oy + R + 1));
+        for (let y = y0; y <= ye; y++) for (let x = x0; x <= xe; x++) {
+          const dx = x + 0.5 - cx - ox, dy = y + 0.5 - cy - oy, dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > R + 1) continue;
+          let ang = Math.atan2(dy, dx) - rot;
+          ang = ((ang % sector) + sector) % sector;
+          const phi = ang > half ? sector - ang : ang;
+          const cov = clamp01(edge(phi) - dist + 0.5) * alpha;
+          if (cov <= 0) continue;
+          let c = colr;
+          if (alpha === 1) { const lit = 1 + 0.18 * (-dx - dy) / (R * 1.5); c = colr.map(v => Math.max(0, Math.min(255, v * lit))); }
+          paint((y * w + x) * 4, c, cov);
+        }
+      };
+      if (p.sombra > 0) draw(R * 0.12 + sc, R * 0.18 + sc, [0, 0, 0], p.sombra * 0.35);
+      draw(0, 0, col, 1);
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   7) RISOGRAFÍA (Riso print)
+   ===================================================================== */
+registerEffect({
+  id: 'riso',
+  name: 'Risografía',
+  description: 'Separa la imagen en 1 a 3 tintas de risógrafo con grano, superposición, desregistro y viñeta.',
+  params: [
+    { type: 'header', label: 'Tintas' },
+    { key: 'nTintas', label: 'Cantidad de tintas', type: 'range', min: 1, max: 3, step: 1, default: 3 },
+    { key: 't1', label: 'Tinta 1', type: 'color', default: '#ff48b0' },
+    { key: 't2', label: 'Tinta 2', type: 'color', default: '#0078bf', showIf: p => p.nTintas >= 2 },
+    { key: 't3', label: 'Tinta 3', type: 'color', default: '#ffe800', showIf: p => p.nTintas >= 3 },
+    { key: 'papel', label: 'Color de papel', type: 'color', default: '#f2ede3' },
+    { type: 'header', label: 'Impresión' },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.5, max: 2.5, step: 0.05, default: 1.2 },
+    { key: 'intensidad', label: 'Intensidad de tinta', type: 'range', min: 0.5, max: 3, step: 0.05, default: 1.6 },
+    { key: 'densidad',  label: 'Densidad extra', type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0.05 },
+    { key: 'grano',     label: 'Grano', type: 'range', min: 0.5, max: 5, step: 0.1, default: 1.3, unit: 'px' },
+    { key: 'grumos',    label: 'Grumos', type: 'range', min: 0, max: 1, step: 0.01, default: 0.35 },
+    { key: 'desregistro', label: 'Desregistro', type: 'range', min: 0, max: 12, step: 0.5, default: 3, unit: 'px' },
+    { key: 'vineta',    label: 'Viñeta (papel en los bordes)', type: 'range', min: 0, max: 1, step: 0.01, default: 0.4 },
+    { key: 'texPapel',  label: 'Textura de papel', type: 'range', min: 0, max: 0.3, step: 0.01, default: 0.06 },
+    { key: 'semilla',   label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 2 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0, N = w * h;
+    const K = Math.max(1, Math.min(3, p.nTintas | 0));
+    const inks = [p.t1, p.t2, p.t3].slice(0, K).map(hexToRgb);
+    const pap = hexToRgb(p.papel);
+    // absorbancia de cada tinta respecto del papel
+    const A = [0, 1, 2].map(ch => inks.map(ink => -Math.log(Math.max(0.03, ink[ch] / Math.max(1, pap[ch])))));
+    // pseudo-inversa: (AᵀA + λI)⁻¹ Aᵀ
+    const AtA = inks.map((_, i) => inks.map((_, j) => A.reduce((s, row) => s + row[i] * row[j], 0) + (i === j ? 1e-3 : 0)));
+    const inv = invertMatrix(AtA);
+    const P = inks.map((_, i) => [0, 1, 2].map(ch => inv[i].reduce((s, v, j) => s + v * A[ch][j], 0)));
+    const cov = inks.map(() => new Float32Array(N));
+    for (let i = 0; i < N; i++) {
+      const o = i * 4, a = data[o + 3] / 255;
+      const D = [0, 1, 2].map(ch => {
+        let v = data[o + ch] / 255 * a + (1 - a);
+        v = clamp01((v - 0.5) * p.contraste + 0.5);
+        return Math.max(0, -Math.log(Math.max(0.03, v * 255 / Math.max(1, pap[ch]))));
+      });
+      for (let k = 0; k < K; k++) cov[k][i] = clamp01((P[k][0] * D[0] + P[k][1] * D[1] + P[k][2] * D[2]) * p.intensidad + p.densidad);
+    }
+    const gs = Math.max(0.35, p.grano * sc), cs = Math.max(2, 14 * sc), ts = Math.max(1, 30 * sc);
+    const offs = inks.map((_, k) => {
+      if (!p.desregistro || K < 2) return [0, 0];
+      const an = k * 2.399 + seed;
+      return [Math.round(Math.cos(an) * p.desregistro * sc), Math.round(Math.sin(an) * p.desregistro * sc)];
+    });
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      const nx = (x / w - 0.5) * 2, ny = (y / h - 0.5) * 2;
+      const vig = 1 - p.vineta * smoothstep(0.55, 1.15, Math.sqrt(nx * nx + ny * ny) / Math.SQRT2 * 1.25);
+      let r = 1, g = 1, b = 1, hit = false;
+      for (let k = 0; k < K; k++) {
+        const xx = x - offs[k][0], yy = y - offs[k][1];
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        const c = cov[k][yy * w + xx] * vig;
+        if (c <= 0) continue;
+        let t = hash2(Math.floor(x / gs), Math.floor(y / gs), seed + k * 131);
+        if (p.grumos > 0) t = t * (1 - p.grumos) + fbm(x / cs, y / cs, seed + k * 17 + 3) * p.grumos;
+        if (c > t) { hit = true; r *= inks[k][0] / 255; g *= inks[k][1] / 255; b *= inks[k][2] / 255; }
+      }
+      if (!hit && ctx.transparentPaper) { data[o + 3] = 0; continue; }
+      let f = 1;
+      if (p.texPapel > 0) f = 1 - p.texPapel * (0.6 * fbm(x / ts, y / ts, seed + 41) + 0.4 * hash2(x, y, seed + 42));
+      if (ctx.transparentPaper) { data[o] = r * 255; data[o + 1] = g * 255; data[o + 2] = b * 255; data[o + 3] = 255; continue; }
+      data[o] = pap[0] * r * f; data[o + 1] = pap[1] * g * f; data[o + 2] = pap[2] * b * f; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   8) BORDADO SATÉN / PARCHE (Embroidery)
+   ===================================================================== */
+registerEffect({
+  id: 'satin',
+  name: 'Bordado satén (parche)',
+  description: 'Rellena cada zona de color con hilos de satén en relieve, como un parche bordado.',
+  params: [
+    { type: 'header', label: 'Hilos' },
+    { key: 'colores',  label: 'Colores de hilo', type: 'range', min: 2, max: 16, step: 1, default: 6 },
+    { key: 'ancho',    label: 'Ancho del hilo', type: 'range', min: 1, max: 10, step: 0.1, default: 2.5, unit: 'px' },
+    { key: 'largo',    label: 'Largo de puntada', type: 'range', min: 4, max: 120, step: 1, default: 22, unit: 'px' },
+    { key: 'direccion', label: 'Dirección', type: 'range', min: 0, max: 180, step: 1, default: 45, unit: '°' },
+    { key: 'variar',   label: 'Cada color con otra dirección', type: 'checkbox', default: true },
+    { key: 'brillo',   label: 'Brillo del hilo', type: 'range', min: 0, max: 1, step: 0.01, default: 0.7 },
+    { type: 'header', label: 'Bordes' },
+    { key: 'relieve',  label: 'Relieve de bordes', type: 'range', min: 0, max: 1, step: 0.01, default: 0.6 },
+    { key: 'anchoBorde', label: 'Ancho del relieve', type: 'range', min: 1, max: 15, step: 0.5, default: 4, unit: 'px' },
+    { type: 'header', label: 'Fondo' },
+    { key: 'fondo', label: 'No bordar', type: 'select', default: 'transparente', options: [
+      ['transparente', 'Lo transparente'], ['blanco', 'Lo transparente y el blanco'], ['nada', 'Bordar todo'],
+    ]},
+    { key: 'tela',    label: 'Color de tela', type: 'color', default: '#2b2b2b' },
+    { key: 'semilla', label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 3 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0, N = w * h;
+    const tela = hexToRgb(p.tela);
+    const isBg = o => {
+      if (p.fondo === 'nada') return false;
+      if (data[o + 3] < 128) return true;
+      return p.fondo === 'blanco' && luma(data[o], data[o + 1], data[o + 2]) > 235;
+    };
+    // 1) paleta de hilos con k-means sobre una muestra
+    const step = Math.max(1, Math.floor(Math.sqrt(N / 20000)));
+    const pts = [];
+    for (let y = 0; y < h; y += step) for (let x = 0; x < w; x += step) {
+      const o = (y * w + x) * 4;
+      if (!isBg(o)) pts.push([data[o], data[o + 1], data[o + 2]]);
+    }
+    const cen = kmeansColors(pts, p.colores | 0, 10);
+    const idx = new Int16Array(N).fill(-1);
+    if (cen.length) for (let i = 0; i < N; i++) { const o = i * 4; if (!isBg(o)) idx[i] = nearestColor(cen, data[o], data[o + 1], data[o + 2]); }
+    const angs = cen.map((_, k) => (p.direccion + (p.variar ? k * 67 : 0)) * Math.PI / 180);
+    const wt = Math.max(0.6, p.ancho * sc), L = Math.max(2, p.largo * sc), e = Math.max(1, Math.round(p.anchoBorde * sc));
+    const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h) ? -1 : idx[y * w + x];
+    const B = p.brillo, RB = p.relieve;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, o = i * 4, k = idx[i];
+      if (k < 0) {
+        if (ctx.transparentPaper) { data[o + 3] = 0; continue; }
+        // tela tipo sarga + sombra del parche
+        let f = 0.92 + 0.08 * Math.cos(2 * Math.PI * (x + y) / Math.max(2, 3 * sc)) - 0.04 * hash2(x, y, seed + 5);
+        if (at(x - e, y - e) >= 0) f *= 1 - 0.45 * RB;
+        data[o] = tela[0] * f; data[o + 1] = tela[1] * f; data[o + 2] = tela[2] * f; data[o + 3] = 255;
+        continue;
+      }
+      const th = angs[k], ca = Math.cos(th), sa = Math.sin(th);
+      const across = (x * ca + y * sa) / wt, along = (-x * sa + y * ca);
+      const lane = Math.floor(across), fa = across - lane;
+      const fb = fract(along / L + hash2(lane, k, seed));
+      let f = 1 - B * 0.5 * (2 * fa - 1) * (2 * fa - 1) + B * 0.25 * Math.exp(-((fa - 0.35) / 0.18) * ((fa - 0.35) / 0.18));
+      f *= 1 - 0.06 * hash2(lane, Math.floor(along / L), seed + k);
+      if (fb < 0.06) f *= 0.72;                                   // fin de puntada
+      // relieve en los bordes de cada zona
+      if (at(x - 1, y) !== k || at(x + 1, y) !== k || at(x, y - 1) !== k || at(x, y + 1) !== k) f *= 1 - 0.4 * RB;
+      else {
+        if (at(x - e, y - e) !== k) f *= 1 + 0.25 * RB;
+        if (at(x + e, y + e) !== k) f *= 1 - 0.35 * RB;
+      }
+      const c = cen[k];
+      data[o] = c[0] * f; data[o + 1] = c[1] * f; data[o + 2] = c[2] * f; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   TANDA 3
+   ===================================================================== */
+function makeRGBA(w, h) { return new Uint8ClampedArray(w * h * 4); }
+// Interpolación en una lista de colores [[r,g,b],...] con t en 0..1
+function rampColor(stops, t) {
+  t = clamp01(t) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(t)), f = t - i;
+  const a = stops[i], b = stops[i + 1];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+// Color promedio por celdas (sobre blanco donde es transparente). Devuelve {r,g,b,a} Float32 por celda
+function cellAverages(data, w, h, cw, ch) {
+  const gw = Math.ceil(w / cw), gh = Math.ceil(h / ch), G = gw * gh;
+  const r = new Float32Array(G), g = new Float32Array(G), b = new Float32Array(G), a = new Float32Array(G), n = new Float32Array(G);
+  for (let y = 0; y < h; y++) {
+    const gy = Math.min(gh - 1, Math.floor(y / ch)) * gw;
+    for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4, c = gy + Math.min(gw - 1, Math.floor(x / cw)), al = data[o + 3] / 255;
+      r[c] += data[o] * al + 255 * (1 - al); g[c] += data[o + 1] * al + 255 * (1 - al); b[c] += data[o + 2] * al + 255 * (1 - al);
+      a[c] += al; n[c]++;
+    }
+  }
+  for (let c = 0; c < G; c++) if (n[c]) { r[c] /= n[c]; g[c] /= n[c]; b[c] /= n[c]; a[c] /= n[c]; }
+  return { gw, gh, r, g, b, a };
+}
+
+/* ---------- Mapa de degradado (tooooools / Thermal Noise) ---------- */
+const DEGRADADOS = {
+  termico:   ['#000000', '#3b0a6e', '#c4126a', '#ff6a00', '#ffd200', '#ffffff'],
+  rojoAzul:  ['#120c6e', '#2438ff', '#ff2b2b', '#ffe3d6'],
+  termRosa:  ['#1a0510', '#e0216f', '#f6a0c0', '#e6ffc8'],
+  duotono:   ['#1b1f5e', '#f7c548'],
+  cobre:     ['#140a05', '#7a3b16', '#e3a35b', '#fff1d6'],
+  neon:      ['#0b0221', '#7b2ff7', '#f107a3', '#00f0ff'],
+};
+registerEffect({
+  id: 'degradado',
+  name: 'Mapa de degradado',
+  description: 'Pinta la imagen según su luz con un degradado de colores. Con ruido sale el look "Thermal Noise".',
+  params: [
+    { key: 'preset', label: 'Degradado', type: 'select', default: 'termico', options: [
+      ['termico', 'Térmico'], ['rojoAzul', 'Rojo y azul'], ['termRosa', 'Ruido térmico rosa/verde'],
+      ['duotono', 'Duotono azul/amarillo'], ['cobre', 'Cobre'], ['neon', 'Neón'], ['custom', 'Personalizado'],
+    ]},
+    { key: 'n',  label: 'Cantidad de colores', type: 'range', min: 2, max: 5, step: 1, default: 3, showIf: p => p.preset === 'custom' },
+    { key: 'c1', label: 'Color 1 (sombras)', type: 'color', default: '#10002b', showIf: p => p.preset === 'custom' },
+    { key: 'c2', label: 'Color 2', type: 'color', default: '#e0216f', showIf: p => p.preset === 'custom' },
+    { key: 'c3', label: 'Color 3', type: 'color', default: '#fff3b0', showIf: p => p.preset === 'custom' && p.n >= 3 },
+    { key: 'c4', label: 'Color 4', type: 'color', default: '#ffffff', showIf: p => p.preset === 'custom' && p.n >= 4 },
+    { key: 'c5', label: 'Color 5', type: 'color', default: '#ffffff', showIf: p => p.preset === 'custom' && p.n >= 5 },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.1 },
+    { key: 'brillo',    label: 'Brillo', type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0 },
+    { key: 'invertir',  label: 'Invertir', type: 'checkbox', default: false },
+    { key: 'ruido',     label: 'Ruido', type: 'range', min: 0, max: 0.6, step: 0.01, default: 0 },
+    { key: 'tamRuido',  label: 'Tamaño del ruido', type: 'range', min: 0.5, max: 6, step: 0.1, default: 1.2, unit: 'px', showIf: p => p.ruido > 0 },
+    { key: 'niveles',   label: 'Posterizar (0 = suave)', type: 'range', min: 0, max: 16, step: 1, default: 0 },
+    { key: 'semilla',   label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 1 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const hexes = p.preset === 'custom' ? [p.c1, p.c2, p.c3, p.c4, p.c5].slice(0, p.n | 0) : DEGRADADOS[p.preset] || DEGRADADOS.termico;
+    const stops = hexes.map(hexToRgb);
+    const gs = Math.max(0.35, p.tamRuido * ctx.scale), nl = p.niveles | 0, seed = p.semilla | 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      let l = luma(data[o], data[o + 1], data[o + 2]) / 255;
+      if (p.invertir) l = 1 - l;
+      l = (l - 0.5) * p.contraste + 0.5 + p.brillo;
+      if (p.ruido > 0) l += (hash2(Math.floor(x / gs), Math.floor(y / gs), seed) - 0.5) * p.ruido * 2;
+      l = clamp01(l);
+      if (nl > 1) l = Math.round(l * (nl - 1)) / (nl - 1);
+      const c = rampColor(stops, l);
+      data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2];
+    }
+    return img;
+  }
+});
+
+/* ---------- Grabado de líneas (grainrad) ---------- */
+registerEffect({
+  id: 'grabado',
+  name: 'Grabado de líneas',
+  description: 'Líneas paralelas que engordan en las sombras y se ondulan con la imagen, como un grabado.',
+  params: [
+    { key: 'espaciado', label: 'Separación de líneas', type: 'range', min: 2, max: 40, step: 0.5, default: 6, unit: 'px' },
+    { key: 'grosorMax', label: 'Grosor máximo', type: 'range', min: 0.2, max: 1, step: 0.01, default: 0.9 },
+    { key: 'angulo',    label: 'Ángulo', type: 'range', min: 0, max: 180, step: 1, default: 0, unit: '°' },
+    { key: 'onda',      label: 'Ondulación según la imagen', type: 'range', min: 0, max: 3, step: 0.05, default: 0.8 },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.2 },
+    { key: 'brillo',    label: 'Brillo', type: 'range', min: -0.5, max: 0.5, step: 0.01, default: 0 },
+    { key: 'tinta',     label: 'Color de tinta', type: 'color', default: '#111111' },
+    { key: 'papel',     label: 'Color de papel', type: 'color', default: '#f4f1ea' },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sp = Math.max(1, p.espaciado * ctx.scale);
+    const an = p.angulo * Math.PI / 180, ca = Math.cos(an), sa = Math.sin(an);
+    const ink = hexToRgb(p.tinta), pap = hexToRgb(p.papel);
+    const src = data.slice();
+    const L = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const o = i * 4, a = src[o + 3] / 255;
+      L[i] = clamp01(((luma(src[o], src[o + 1], src[o + 2]) / 255 * a + 1 - a) - 0.5) * p.contraste + 0.5 + p.brillo);
+    }
+    // luz suavizada para la ondulación (evita líneas rotas)
+    const lu = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) { lu[i * 4] = lu[i * 4 + 1] = lu[i * 4 + 2] = L[i] * 255; lu[i * 4 + 3] = 255; }
+    const Ls = blurRGB(lu, w, h, sp * 0.8);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, o = i * 4;
+      const v = (-x * sa + y * ca) + p.onda * sp * (Ls[i * 3] / 255);
+      const f = fract(v / sp), d = Math.abs(f - 0.5) * 2;
+      const tk = (1 - L[i]) * p.grosorMax;
+      const cov = clamp01((tk - d) * sp / 2 + 0.5) * (tk > 0.01 ? 1 : 0);
+      if (ctx.transparentPaper) { data[o] = ink[0]; data[o + 1] = ink[1]; data[o + 2] = ink[2]; data[o + 3] = cov * 255; continue; }
+      for (let k = 0; k < 3; k++) data[o + k] = pap[k] + (ink[k] - pap[k]) * cov;
+      data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* ---------- Pixel art con paleta ---------- */
+const PALETAS_PIXEL = {
+  glitch:  ['#14121c', '#3b23a0', '#7a4dff', '#3fbf3f', '#a8f060', '#e63946', '#2f6bff', '#ffd23f'],
+  gameboy: ['#0f380f', '#306230', '#8bac0f', '#9bbc0f'],
+  pico8:   ['#000000', '#1d2b53', '#7e2553', '#008751', '#ab5236', '#5f574f', '#c2c3c7', '#fff1e8',
+            '#ff004d', '#ffa300', '#ffec27', '#00e436', '#29adff', '#83769c', '#ff77a8', '#ffccaa'],
+  cga:     ['#000000', '#55ffff', '#ff55ff', '#ffffff'],
+  bn:      ['#000000', '#ffffff'],
+};
+registerEffect({
+  id: 'pixelart',
+  name: 'Pixel art',
+  description: 'Píxeles grandes con paleta limitada, dither opcional y líneas de escaneo.',
+  params: [
+    { key: 'tam', label: 'Tamaño del píxel', type: 'range', min: 2, max: 60, step: 1, default: 6, unit: 'px' },
+    { key: 'paleta', label: 'Paleta', type: 'select', default: 'glitch', options: [
+      ['glitch', 'Glitch (8 colores)'], ['gameboy', 'Game Boy'], ['pico8', 'PICO-8 (16)'], ['cga', 'CGA'], ['bn', 'Blanco y negro'], ['imagen', 'De la imagen'],
+    ]},
+    { key: 'nColores', label: 'Colores (de la imagen)', type: 'range', min: 2, max: 32, step: 1, default: 8, showIf: p => p.paleta === 'imagen' },
+    { key: 'dither', label: 'Dither', type: 'select', default: 'bayer', options: [['ninguno', 'Ninguno'], ['bayer', 'Ordenado (Bayer)'], ['fs', 'Difusión de error']] },
+    { key: 'fDither', label: 'Fuerza del dither', type: 'range', min: 0, max: 1, step: 0.01, default: 0.5, showIf: p => p.dither === 'bayer' },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.2 },
+    { key: 'scan', label: 'Líneas de escaneo', type: 'range', min: 0, max: 1, step: 0.01, default: 0.4 },
+    { key: 'scanGrosor', label: 'Grosor de las líneas', type: 'range', min: 0.1, max: 0.6, step: 0.01, default: 0.3, showIf: p => p.scan > 0 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const cs = Math.max(1, p.tam * ctx.scale);
+    const A = cellAverages(data, w, h, cs, cs);
+    const G = A.gw * A.gh;
+    const cr = new Float32Array(G), cg = new Float32Array(G), cb = new Float32Array(G);
+    for (let c = 0; c < G; c++) {
+      cr[c] = (A.r[c] - 128) * p.contraste + 128; cg[c] = (A.g[c] - 128) * p.contraste + 128; cb[c] = (A.b[c] - 128) * p.contraste + 128;
+    }
+    let pal;
+    if (p.paleta === 'imagen') {
+      const pts = []; for (let c = 0; c < G; c++) if (A.a[c] >= 0.5) pts.push([cr[c], cg[c], cb[c]]);
+      pal = kmeansColors(pts.length ? pts : [[0, 0, 0], [255, 255, 255]], p.nColores | 0, 10);
+    } else pal = PALETAS_PIXEL[p.paleta].map(hexToRgb);
+    const out = new Int16Array(G);
+    if (p.dither === 'fs') {
+      for (let gy = 0; gy < A.gh; gy++) for (let gx = 0; gx < A.gw; gx++) {
+        const c = gy * A.gw + gx, k = nearestColor(pal, cr[c], cg[c], cb[c]); out[c] = k;
+        const er = cr[c] - pal[k][0], eg = cg[c] - pal[k][1], eb = cb[c] - pal[k][2];
+        const push = (dx, dy, f) => { const xx = gx + dx, yy = gy + dy; if (xx < 0 || xx >= A.gw || yy >= A.gh) return; const j = yy * A.gw + xx; cr[j] += er * f; cg[j] += eg * f; cb[j] += eb * f; };
+        push(1, 0, 7 / 16); push(-1, 1, 3 / 16); push(0, 1, 5 / 16); push(1, 1, 1 / 16);
+      }
+    } else {
+      const amp = p.dither === 'bayer' ? p.fDither * 96 : 0;
+      for (let gy = 0; gy < A.gh; gy++) for (let gx = 0; gx < A.gw; gx++) {
+        const c = gy * A.gw + gx, t = amp ? (BAYER8[(gy & 7) * 8 + (gx & 7)] - 0.5) * amp : 0;
+        out[c] = nearestColor(pal, cr[c] + t, cg[c] + t, cb[c] + t);
+      }
+    }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4, gx = Math.min(A.gw - 1, Math.floor(x / cs)), gy = Math.min(A.gh - 1, Math.floor(y / cs)), c = gy * A.gw + gx;
+      if (A.a[c] < 0.5 && ctx.transparentPaper) { data[o + 3] = 0; continue; }
+      const col = pal[out[c]];
+      const f = p.scan > 0 && fract(y / cs) > 1 - p.scanGrosor ? 1 - p.scan * 0.7 : 1;
+      data[o] = col[0] * f; data[o + 1] = col[1] * f; data[o + 2] = col[2] * f; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* ---------- Glitch (pixel sorting / chorreado) ---------- */
+registerEffect({
+  id: 'glitch',
+  name: 'Glitch',
+  description: 'Ordena o estira píxeles por luz (pixel sorting), corre franjas y separa los canales RGB.',
+  params: [
+    { type: 'header', label: 'Pixel sorting' },
+    { key: 'modo', label: 'Modo', type: 'select', default: 'sort', options: [['sort', 'Ordenar píxeles'], ['smear', 'Estirar (chorreado)'], ['ninguno', 'Ninguno']] },
+    { key: 'dir', label: 'Dirección', type: 'select', default: 'vertical', options: [['vertical', 'Vertical'], ['horizontal', 'Horizontal']], showIf: p => p.modo !== 'ninguno' },
+    { key: 'lo', label: 'Desde luz', type: 'range', min: 0, max: 1, step: 0.01, default: 0.25, showIf: p => p.modo !== 'ninguno' },
+    { key: 'hi', label: 'Hasta luz', type: 'range', min: 0, max: 1, step: 0.01, default: 0.85, showIf: p => p.modo !== 'ninguno' },
+    { key: 'invertirOrden', label: 'Invertir el orden', type: 'checkbox', default: false, showIf: p => p.modo === 'sort' },
+    { type: 'header', label: 'Cortes y RGB' },
+    { key: 'cortes', label: 'Franjas corridas', type: 'range', min: 0, max: 30, step: 1, default: 6 },
+    { key: 'despl',  label: 'Corrimiento de franjas', type: 'range', min: 0, max: 200, step: 1, default: 30, unit: 'px', showIf: p => p.cortes > 0 },
+    { key: 'rgb',    label: 'Separación RGB', type: 'range', min: 0, max: 40, step: 0.5, default: 6, unit: 'px' },
+    { key: 'scan',   label: 'Líneas de escaneo', type: 'range', min: 0, max: 1, step: 0.01, default: 0.2 },
+    { key: 'ruido',  label: 'Ruido', type: 'range', min: 0, max: 0.5, step: 0.01, default: 0.05 },
+    { key: 'semilla', label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 13 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    let src = data.slice();
+    // 1) pixel sorting por columnas o filas
+    if (p.modo !== 'ninguno') {
+      const vert = p.dir === 'vertical';
+      const lines = vert ? w : h, len = vert ? h : w;
+      const lo = Math.min(p.lo, p.hi) * 255, hi = Math.max(p.lo, p.hi) * 255;
+      const idxOf = (line, k) => (vert ? k * w + line : line * w + k) * 4;
+      for (let line = 0; line < lines; line++) {
+        let k = 0;
+        while (k < len) {
+          const o = idxOf(line, k), l = luma(src[o], src[o + 1], src[o + 2]);
+          if (l < lo || l > hi) { k++; continue; }
+          let e = k;
+          while (e < len) { const o2 = idxOf(line, e), l2 = luma(src[o2], src[o2 + 1], src[o2 + 2]); if (l2 < lo || l2 > hi) break; e++; }
+          if (e - k > 1) {
+            if (p.modo === 'sort') {
+              const run = [];
+              for (let q = k; q < e; q++) { const o3 = idxOf(line, q); run.push([src[o3], src[o3 + 1], src[o3 + 2], src[o3 + 3]]); }
+              run.sort((a, b) => (luma(a[0], a[1], a[2]) - luma(b[0], b[1], b[2])) * (p.invertirOrden ? -1 : 1));
+              for (let q = k; q < e; q++) { const o3 = idxOf(line, q), c = run[q - k]; src[o3] = c[0]; src[o3 + 1] = c[1]; src[o3 + 2] = c[2]; src[o3 + 3] = c[3]; }
+            } else {
+              const o0 = idxOf(line, k);
+              for (let q = k + 1; q < e; q++) {
+                const o3 = idxOf(line, q), t = (q - k) / (e - k);
+                for (let c = 0; c < 4; c++) src[o3 + c] = src[o0 + c] * (1 - t * 0.5) + src[o3 + c] * t * 0.5;
+              }
+            }
+          }
+          k = e + 1;
+        }
+      }
+    }
+    // 2) franjas corridas + separación RGB + escaneo + ruido
+    const bands = [];
+    for (let k = 0; k < p.cortes; k++) {
+      const y0 = hash2(k, 0, seed) * h, bh = (0.01 + 0.06 * hash2(k, 1, seed)) * h;
+      bands.push([y0, y0 + bh, (hash2(k, 2, seed) - 0.5) * 2 * p.despl * sc]);
+    }
+    const rs = p.rgb * sc, px = [0, 0, 0, 0];
+    for (let y = 0; y < h; y++) {
+      let shift = 0;
+      for (const b of bands) if (y >= b[0] && y < b[1]) shift += b[2];
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4, sx = x - shift;
+        sampleBilinear(src, w, h, sx - rs, y, px); const r = px[0], ar = px[3];
+        sampleBilinear(src, w, h, sx, y, px); const g = px[1], ag = px[3];
+        sampleBilinear(src, w, h, sx + rs, y, px); const b = px[2], ab = px[3];
+        let f = 1;
+        if (p.scan > 0 && (Math.floor(y / Math.max(1, 2 * sc)) & 1)) f = 1 - p.scan * 0.5;
+        const nz = p.ruido > 0 ? (hash2(x, y, seed + 5) - 0.5) * p.ruido * 255 : 0;
+        data[o] = r * f + nz; data[o + 1] = g * f + nz; data[o + 2] = b * f + nz; data[o + 3] = Math.max(ar, ag, ab);
+      }
+    }
+    return img;
+  }
+});
+
+/* ---------- ASCII / Glifos ---------- */
+const GLIFOS = [
+  ['.....', '.....', '.....', '.....', '.....', '.....', '.....'],   // espacio
+  ['.....', '.....', '.....', '.....', '.....', '..#..', '.....'],   // .
+  ['.....', '..#..', '.....', '.....', '..#..', '.....', '.....'],   // :
+  ['.....', '.....', '.....', '.###.', '.....', '.....', '.....'],   // -
+  ['.....', '.....', '.###.', '.....', '.###.', '.....', '.....'],   // =
+  ['.....', '..#..', '..#..', '#####', '..#..', '..#..', '.....'],   // +
+  ['.....', '#.#.#', '.###.', '#####', '.###.', '#.#.#', '.....'],   // *
+  ['.....', '.#.#.', '#####', '.#.#.', '#####', '.#.#.', '.....'],   // #
+  ['##..#', '##.#.', '..#..', '.#...', '#..##', '...##', '.....'],   // %
+  ['.###.', '#...#', '#.###', '#.#.#', '#.###', '#....', '.###.'],   // @
+].map(rows => rows.map(r => [...r].map(ch => ch === '#' ? 1 : 0)));
+registerEffect({
+  id: 'ascii',
+  name: 'ASCII / glifos',
+  description: 'Redibuja la imagen con caracteres según la luz (Glyph Grid).',
+  params: [
+    { key: 'tam', label: 'Tamaño del carácter', type: 'range', min: 4, max: 60, step: 1, default: 10, unit: 'px' },
+    { key: 'modoColor', label: 'Color', type: 'select', default: 'imagen', options: [
+      ['imagen', 'Color de la imagen'], ['mono', 'Un color'], ['terminal', 'Terminal verde'],
+    ]},
+    { key: 'tinta', label: 'Color de los caracteres', type: 'color', default: '#111111', showIf: p => p.modoColor === 'mono' },
+    { key: 'fondo', label: 'Color de fondo', type: 'color', default: '#0b0b0b', showIf: p => p.modoColor !== 'terminal' },
+    { key: 'fondoOscuro', label: 'Fondo oscuro (lo claro = más denso)', type: 'checkbox', default: true },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.3 },
+    { key: 'grilla', label: 'Mostrar grilla', type: 'checkbox', default: false },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const cw = Math.max(3, p.tam * ctx.scale), ch = cw * 1.4;
+    const A = cellAverages(data, w, h, cw, ch);
+    const term = p.modoColor === 'terminal';
+    const bg = term ? [5, 12, 6] : hexToRgb(p.fondo), ink = term ? [60, 255, 110] : hexToRgb(p.tinta);
+    const dark = term || p.fondoOscuro;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      const gx = Math.min(A.gw - 1, Math.floor(x / cw)), gy = Math.min(A.gh - 1, Math.floor(y / ch)), c = gy * A.gw + gx;
+      let l = clamp01((luma(A.r[c], A.g[c], A.b[c]) / 255 - 0.5) * p.contraste + 0.5);
+      const dens = dark ? l : 1 - l;
+      const gi = Math.min(GLIFOS.length - 1, Math.floor(dens * GLIFOS.length));
+      const u = Math.floor(fract(x / cw) * 6), v = Math.floor(fract(y / ch) * 8);   // 5x7 con 1 de margen
+      const on = u < 5 && v < 7 && GLIFOS[gi][v][u] && A.a[c] > 0.3;
+      const gridLine = p.grilla && (fract(x / cw) < 1 / cw || fract(y / ch) < 1 / ch);
+      if (on) {
+        const col = p.modoColor === 'imagen' ? [A.r[c], A.g[c], A.b[c]] : ink;
+        data[o] = col[0]; data[o + 1] = col[1]; data[o + 2] = col[2]; data[o + 3] = 255;
+      } else if (ctx.transparentPaper && !gridLine) {
+        data[o + 3] = 0;
+      } else {
+        const f = gridLine ? (dark ? 2.2 : 0.85) : 1;
+        data[o] = Math.min(255, bg[0] * f + (gridLine && dark ? 20 : 0)); data[o + 1] = Math.min(255, bg[1] * f + (gridLine && dark ? 20 : 0));
+        data[o + 2] = Math.min(255, bg[2] * f + (gridLine && dark ? 20 : 0)); data[o + 3] = 255;
+      }
+    }
+    return img;
+  }
+});
+
+/* ---------- Monitor CRT / Fósforo ---------- */
+registerEffect({
+  id: 'crt',
+  name: 'Monitor CRT',
+  description: 'Pantalla de tubo: líneas, máscara RGB, brillo, curvatura y viñeta. Incluye fósforo verde/ámbar y "Phosphor Ghost".',
+  params: [
+    { key: 'modo', label: 'Modo', type: 'select', default: 'color', options: [
+      ['color', 'Color'], ['verde', 'Fósforo verde'], ['ambar', 'Fósforo ámbar'], ['fantasma', 'Fantasma de fósforo (bordes que brillan)'],
+    ]},
+    { key: 'colorFantasma', label: 'Color del fantasma', type: 'color', default: '#5fe8ff', showIf: p => p.modo === 'fantasma' },
+    { key: 'scan',      label: 'Líneas de escaneo', type: 'range', min: 0, max: 1, step: 0.01, default: 0.5 },
+    { key: 'tamLinea',  label: 'Alto de línea', type: 'range', min: 1, max: 10, step: 0.5, default: 3, unit: 'px' },
+    { key: 'mascara',   label: 'Máscara RGB', type: 'range', min: 0, max: 1, step: 0.01, default: 0.35 },
+    { key: 'glow',      label: 'Resplandor', type: 'range', min: 0, max: 1, step: 0.01, default: 0.4 },
+    { key: 'curva',     label: 'Curvatura', type: 'range', min: 0, max: 1, step: 0.01, default: 0.3 },
+    { key: 'vineta',    label: 'Viñeta', type: 'range', min: 0, max: 1, step: 0.01, default: 0.5 },
+    { key: 'aberracion', label: 'Aberración de color', type: 'range', min: 0, max: 8, step: 0.1, default: 1, unit: 'px' },
+    { key: 'ruido',     label: 'Ruido', type: 'range', min: 0, max: 0.3, step: 0.01, default: 0.05 },
+    { key: 'semilla',   label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 1 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0, N = w * h;
+    let src = data.slice();
+    for (let o = 0; o < src.length; o += 4) { const a = src[o + 3] / 255; for (let k = 0; k < 3; k++) src[o + k] *= a; src[o + 3] = 255; }
+    if (p.modo === 'fantasma') {
+      // bordes (Sobel) sobre la imagen suavizada → brillo de fósforo
+      const bl = blurRGB(src, w, h, 1.5 * sc);
+      const L = i => luma(bl[i * 3], bl[i * 3 + 1], bl[i * 3 + 2]) / 255;
+      const tint = hexToRgb(p.colorFantasma);
+      const e = new Uint8ClampedArray(N * 4);
+      for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        const gx = L(i - w + 1) + 2 * L(i + 1) + L(i + w + 1) - L(i - w - 1) - 2 * L(i - 1) - L(i + w - 1);
+        const gy = L(i + w - 1) + 2 * L(i + w) + L(i + w + 1) - L(i - w - 1) - 2 * L(i - w) - L(i - w + 1);
+        const v = clamp01(Math.sqrt(gx * gx + gy * gy) * 1.6 + L(i) * 0.28);
+        for (let k = 0; k < 3; k++) e[i * 4 + k] = tint[k] * v;
+        e[i * 4 + 3] = 255;
+      }
+      src = e;
+    } else if (p.modo !== 'color') {
+      const tint = p.modo === 'verde' ? [80, 255, 120] : [255, 176, 40];
+      for (let o = 0; o < src.length; o += 4) { const l = luma(src[o], src[o + 1], src[o + 2]) / 255; for (let k = 0; k < 3; k++) src[o + k] = tint[k] * l; }
+    }
+    const glow = p.glow > 0 ? blurRGB(src, w, h, 6 * sc) : null;
+    const lh = Math.max(1, p.tamLinea * sc), ab = p.aberracion * sc, px = [0, 0, 0, 0];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      // curvatura de barril
+      let nx = x / w * 2 - 1, ny = y / h * 2 - 1;
+      const r2 = nx * nx + ny * ny, k = 1 + p.curva * 0.18 * r2;
+      nx *= k; ny *= k;
+      if (Math.abs(nx) > 1 || Math.abs(ny) > 1) { data[o] = data[o + 1] = data[o + 2] = 8; data[o + 3] = 255; continue; }
+      const sx = (nx + 1) / 2 * w, sy = (ny + 1) / 2 * h;
+      sampleBilinear(src, w, h, sx - ab, sy, px); let r = px[0];
+      sampleBilinear(src, w, h, sx, sy, px); let g = px[1];
+      sampleBilinear(src, w, h, sx + ab, sy, px); let b = px[2];
+      if (glow) {
+        const gi = (Math.min(h - 1, Math.max(0, Math.round(sy))) * w + Math.min(w - 1, Math.max(0, Math.round(sx)))) * 3;
+        r += glow[gi] * p.glow; g += glow[gi + 1] * p.glow; b += glow[gi + 2] * p.glow;
+      }
+      // líneas de escaneo
+      const s = 1 - p.scan * (0.5 - 0.5 * Math.cos(2 * Math.PI * sy / lh));
+      // máscara RGB por columnas
+      const col = Math.floor(x / Math.max(1, sc)) % 3;
+      const m = [1, 1, 1].map((v, i) => i === col ? 1 : 1 - p.mascara * 0.6);
+      // viñeta
+      const vg = 1 - p.vineta * smoothstep(0.4, 1.4, Math.sqrt(r2));
+      const nz = p.ruido > 0 ? (hash2(x, y, seed) - 0.5) * p.ruido * 255 : 0;
+      data[o] = r * s * m[0] * vg + nz; data[o + 1] = g * s * m[1] * vg + nz; data[o + 2] = b * s * m[2] * vg + nz; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* ---------- Teletexto ---------- */
+const TELETEXTO = ['#000000', '#ff0000', '#00ff00', '#ffff00', '#0000ff', '#ff00ff', '#00ffff', '#ffffff'].map(hexToRgb);
+registerEffect({
+  id: 'teletexto',
+  name: 'Teletexto',
+  description: 'Mosaico de bloques de 2×3 con la paleta de 8 colores del teletexto.',
+  params: [
+    { key: 'columnas', label: 'Columnas', type: 'range', min: 10, max: 160, step: 1, default: 40 },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.3 },
+    { key: 'saturacion', label: 'Saturación', type: 'range', min: 0, max: 3, step: 0.05, default: 1.6 },
+    { key: 'separados', label: 'Gráficos separados (con ranuras)', type: 'checkbox', default: false },
+    { key: 'scan', label: 'Líneas de escaneo', type: 'range', min: 0, max: 1, step: 0.01, default: 0.25 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const cw = w / Math.max(1, p.columnas), ch = cw * 1.5, sw = cw / 2, sh = ch / 3;
+    const A = cellAverages(data, w, h, sw, sh);
+    const q = new Int8Array(A.gw * A.gh);
+    for (let c = 0; c < q.length; c++) {
+      let r = (A.r[c] - 128) * p.contraste + 128, g = (A.g[c] - 128) * p.contraste + 128, b = (A.b[c] - 128) * p.contraste + 128;
+      const l = luma(r, g, b); r = l + (r - l) * p.saturacion; g = l + (g - l) * p.saturacion; b = l + (b - l) * p.saturacion;
+      q[c] = nearestColor(TELETEXTO, r, g, b);
+    }
+    // cada carácter (2x3 subbloques) usa solo 2 colores
+    const cols = Math.ceil(A.gw / 2), rows = Math.ceil(A.gh / 3);
+    const fin = new Int8Array(q.length);
+    for (let ry = 0; ry < rows; ry++) for (let rx = 0; rx < cols; rx++) {
+      const cnt = new Array(8).fill(0), cells = [];
+      for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 2; dx++) {
+        const gx = rx * 2 + dx, gy = ry * 3 + dy; if (gx >= A.gw || gy >= A.gh) continue;
+        const c = gy * A.gw + gx; cells.push(c); cnt[q[c]]++;
+      }
+      const order = cnt.map((n, i) => [n, i]).sort((a, b) => b[0] - a[0]);
+      const bgC = order[0][1], fgC = order[1][0] ? order[1][1] : bgC;
+      for (const c of cells) {
+        const col = TELETEXTO[q[c]];
+        const dB = (col[0] - TELETEXTO[bgC][0]) ** 2 + (col[1] - TELETEXTO[bgC][1]) ** 2 + (col[2] - TELETEXTO[bgC][2]) ** 2;
+        const dF = (col[0] - TELETEXTO[fgC][0]) ** 2 + (col[1] - TELETEXTO[fgC][1]) ** 2 + (col[2] - TELETEXTO[fgC][2]) ** 2;
+        fin[c] = dF < dB ? fgC : bgC;
+      }
+    }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      const gx = Math.min(A.gw - 1, Math.floor(x / sw)), gy = Math.min(A.gh - 1, Math.floor(y / sh)), c = gy * A.gw + gx;
+      let col = TELETEXTO[fin[c]];
+      if (p.separados && (fract(x / sw) > 0.8 || fract(y / sh) > 0.8)) col = TELETEXTO[0];
+      const f = p.scan > 0 && (Math.floor(y / Math.max(1, ctx.scale * 2)) & 1) ? 1 - p.scan * 0.5 : 1;
+      if (ctx.transparentPaper && fin[c] === 0) { data[o + 3] = 0; continue; }
+      data[o] = col[0] * f; data[o + 1] = col[1] * f; data[o + 2] = col[2] * f; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* ---------- Webcam 95 ---------- */
+registerEffect({
+  id: 'webcam95',
+  name: 'Webcam 95',
+  description: 'Cámara web de los 90: baja resolución, compresión en bloques, colores saturados, bandas y ruido.',
+  params: [
+    { key: 'resolucion', label: 'Resolución (ancho)', type: 'range', min: 40, max: 640, step: 1, default: 160, unit: 'px' },
+    { key: 'compresion', label: 'Compresión en bloques', type: 'range', min: 0, max: 1, step: 0.01, default: 0.55 },
+    { key: 'niveles',    label: 'Niveles de color', type: 'range', min: 2, max: 64, step: 1, default: 20 },
+    { key: 'saturacion', label: 'Saturación', type: 'range', min: 0, max: 3, step: 0.05, default: 1.4 },
+    { key: 'contraste',  label: 'Contraste', type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.2 },
+    { key: 'sobreexp',   label: 'Sobreexposición', type: 'range', min: 0, max: 1, step: 0.01, default: 0.2 },
+    { key: 'tinte',      label: 'Tinte verdoso', type: 'range', min: 0, max: 1, step: 0.01, default: 0.25 },
+    { key: 'ruido',      label: 'Ruido', type: 'range', min: 0, max: 0.4, step: 0.01, default: 0.1 },
+    { key: 'semilla',    label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 95 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const fullW = w / ctx.scale;
+    const cs = Math.max(1, fullW / p.resolucion * ctx.scale);
+    const A = cellAverages(data, w, h, cs, cs);
+    const G = A.gw * A.gh, seed = p.semilla | 0;
+    const Y = new Float32Array(G), U = new Float32Array(G), V = new Float32Array(G);
+    for (let c = 0; c < G; c++) {
+      let r = A.r[c] / 255, g = A.g[c] / 255, b = A.b[c] / 255;
+      const l = luma(r, g, b);
+      r = l + (r - l) * p.saturacion; g = l + (g - l) * p.saturacion; b = l + (b - l) * p.saturacion;
+      r = (r - 0.5) * p.contraste + 0.5 + p.sobreexp * 0.25; g = (g - 0.5) * p.contraste + 0.5 + p.sobreexp * 0.25; b = (b - 0.5) * p.contraste + 0.5 + p.sobreexp * 0.25;
+      g += p.tinte * 0.06; b -= p.tinte * 0.04;
+      Y[c] = 0.299 * r + 0.587 * g + 0.114 * b; U[c] = b - Y[c]; V[c] = r - Y[c];
+    }
+    // "JPEG": luz mezclada con el promedio de bloques 8x8, color de bloques 2x2
+    const comp = p.compresion;
+    const blk = (arr, bs, gx, gy) => {
+      let s = 0, n = 0;
+      const x0 = Math.floor(gx / bs) * bs, y0 = Math.floor(gy / bs) * bs;
+      for (let yy = y0; yy < Math.min(A.gh, y0 + bs); yy++) for (let xx = x0; xx < Math.min(A.gw, x0 + bs); xx++) { s += arr[yy * A.gw + xx]; n++; }
+      return s / n;
+    };
+    const blockY = new Float32Array(G), blockU = new Float32Array(G), blockV = new Float32Array(G);
+    for (let gy = 0; gy < A.gh; gy++) for (let gx = 0; gx < A.gw; gx++) {
+      const c = gy * A.gw + gx;
+      blockY[c] = Y[c] * (1 - comp * 0.6) + blk(Y, 8, gx, gy) * comp * 0.6;
+      blockU[c] = comp > 0 ? blk(U, 2, gx, gy) : U[c];
+      blockV[c] = comp > 0 ? blk(V, 2, gx, gy) : V[c];
+    }
+    const nl = Math.max(2, p.niveles | 0);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      const gx = Math.min(A.gw - 1, Math.floor(x / cs)), gy = Math.min(A.gh - 1, Math.floor(y / cs)), c = gy * A.gw + gx;
+      const nz = (hash2(gx, gy, seed) - 0.5) * p.ruido;
+      const yy = blockY[c] + nz;
+      let r = yy + blockV[c], b = yy + blockU[c], g = (yy - 0.299 * r - 0.114 * b) / 0.587;
+      r = Math.round(clamp01(r) * (nl - 1)) / (nl - 1); g = Math.round(clamp01(g) * (nl - 1)) / (nl - 1); b = Math.round(clamp01(b) * (nl - 1)) / (nl - 1);
+      data[o] = r * 255; data[o + 1] = g * 255; data[o + 2] = b * 255; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* ---------- Solarizado con estela ---------- */
+registerEffect({
+  id: 'solarizado',
+  name: 'Solarizado con estela',
+  description: 'Solarización (invierte las luces) y estelas de luz que se arrastran hacia un costado.',
+  params: [
+    { key: 'umbral',  label: 'Umbral de solarización', type: 'range', min: 0, max: 1, step: 0.01, default: 0.5 },
+    { key: 'mezcla',  label: 'Cantidad de solarización', type: 'range', min: 0, max: 1, step: 0.01, default: 0.8 },
+    { key: 'saturacion', label: 'Saturación', type: 'range', min: 0, max: 3, step: 0.05, default: 1.4 },
+    { key: 'estela',  label: 'Intensidad de estela', type: 'range', min: 0, max: 1, step: 0.01, default: 0.7 },
+    { key: 'largo',   label: 'Largo de estela', type: 'range', min: 5, max: 600, step: 1, default: 140, unit: 'px', showIf: p => p.estela > 0 },
+    { key: 'umbralEstela', label: 'Qué tan claro emite estela', type: 'range', min: 0, max: 1, step: 0.01, default: 0.55, showIf: p => p.estela > 0 },
+    { key: 'dir', label: 'Dirección', type: 'select', default: 'derecha', options: [['derecha', 'Hacia la derecha'], ['izquierda', 'Hacia la izquierda'], ['abajo', 'Hacia abajo'], ['arriba', 'Hacia arriba']], showIf: p => p.estela > 0 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    // solarizar
+    const th = Math.max(0.01, Math.min(0.99, p.umbral));
+    for (let o = 0; o < data.length; o += 4) {
+      const a = data[o + 3] / 255;
+      let c = [0, 1, 2].map(k => data[o + k] / 255 * a);
+      const l = luma(c[0], c[1], c[2]);
+      c = c.map(v => l + (v - l) * p.saturacion);
+      for (let k = 0; k < 3; k++) {
+        const v = clamp01(c[k]), s = v <= th ? v / th : (1 - v) / (1 - th);
+        data[o + k] = (v + (s - v) * p.mezcla) * 255;
+      }
+      data[o + 3] = 255;
+    }
+    if (p.estela <= 0) return img;
+    const decay = Math.exp(-1 / Math.max(1, p.largo * ctx.scale)), te = p.umbralEstela * 255;
+    const horiz = p.dir === 'derecha' || p.dir === 'izquierda', fwd = p.dir === 'derecha' || p.dir === 'abajo';
+    const lines = horiz ? h : w, len = horiz ? w : h;
+    for (let line = 0; line < lines; line++) {
+      const acc = [0, 0, 0];
+      for (let q = 0; q < len; q++) {
+        const k = fwd ? q : len - 1 - q;
+        const o = (horiz ? line * w + k : k * w + line) * 4;
+        const bright = luma(data[o], data[o + 1], data[o + 2]) > te;
+        for (let c = 0; c < 3; c++) {
+          acc[c] *= decay;
+          if (bright) acc[c] = Math.max(acc[c], data[o + c]);
+          data[o + c] = Math.max(data[o + c], acc[c] * p.estela);
+        }
+      }
+    }
+    return img;
+  }
+});
+
+/* ---------- Pantalla líquida ---------- */
+registerEffect({
+  id: 'liquida',
+  name: 'Pantalla líquida',
+  description: 'Las luces chorrean hacia abajo en líneas verticales que brillan sobre fondo oscuro.',
+  params: [
+    { key: 'modoColor', label: 'Color', type: 'select', default: 'tinte', options: [['tinte', 'Un color'], ['imagen', 'Color de la imagen']] },
+    { key: 'tinte',   label: 'Color del brillo', type: 'color', default: '#5b8cff', showIf: p => p.modoColor === 'tinte' },
+    { key: 'fondo',   label: 'Fondo', type: 'color', default: '#05060a' },
+    { key: 'umbral',  label: 'Qué tan claro chorrea', type: 'range', min: 0, max: 1, step: 0.01, default: 0.45 },
+    { key: 'largo',   label: 'Largo del chorreado', type: 'range', min: 5, max: 600, step: 1, default: 140, unit: 'px' },
+    { key: 'variacion', label: 'Variación entre columnas', type: 'range', min: 0, max: 1, step: 0.01, default: 0.6 },
+    { key: 'lineas',  label: 'Separación de líneas', type: 'range', min: 1, max: 20, step: 0.5, default: 3, unit: 'px' },
+    { key: 'glow',    label: 'Resplandor', type: 'range', min: 0, max: 1, step: 0.01, default: 0.6 },
+    { key: 'semilla', label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 3 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    const tint = hexToRgb(p.tinte), bg = hexToRgb(p.fondo);
+    const out = new Uint8ClampedArray(w * h * 4);
+    const te = p.umbral, ls = Math.max(1, p.lineas * sc);
+    for (let x = 0; x < w; x++) {
+      const len = Math.max(1, p.largo * sc * (1 - p.variacion + p.variacion * 2 * fbm(x / (ls * 3), 0.5, seed)));
+      const decay = Math.exp(-1 / len);
+      let acc = 0, ac = [0, 0, 0];
+      const stripe = 0.55 + 0.45 * Math.cos(2 * Math.PI * x / ls);
+      for (let y = 0; y < h; y++) {
+        const o = (y * w + x) * 4, a = data[o + 3] / 255;
+        const l = luma(data[o], data[o + 1], data[o + 2]) / 255 * a;
+        acc *= decay; ac = ac.map(v => v * decay);
+        const v = smoothstep(te, Math.min(1, te + 0.25), l);
+        if (v > acc) { acc = v; ac = [data[o] * a, data[o + 1] * a, data[o + 2] * a].map(c => c * v); }
+        const col = p.modoColor === 'imagen' ? ac.map(c => c * 1.4) : tint.map(c => c * acc);
+        for (let k = 0; k < 3; k++) out[o + k] = bg[k] + col[k] * stripe;
+        out[o + 3] = 255;
+      }
+    }
+    if (p.glow > 0) {
+      const g = blurRGB(out, w, h, 5 * sc);
+      for (let i = 0; i < w * h; i++) for (let k = 0; k < 3; k++) out[i * 4 + k] += (g[i * 3 + k] - bg[k]) * p.glow;
+    }
+    data.set(out);
+    return img;
+  }
+});
+
+/* ---------- Posterizar ---------- */
+registerEffect({
+  id: 'posterizar',
+  name: 'Posterizar',
+  description: 'Reduce la imagen a pocos tonos planos, con contorno opcional.',
+  params: [
+    { key: 'niveles', label: 'Niveles', type: 'range', min: 2, max: 16, step: 1, default: 4 },
+    { key: 'modo', label: 'Modo', type: 'select', default: 'canales', options: [['canales', 'Por canal de color'], ['luz', 'Por luz (mantiene el color)']] },
+    { key: 'suavizado', label: 'Suavizar antes', type: 'range', min: 0, max: 20, step: 0.5, default: 2, unit: 'px' },
+    { key: 'contraste', label: 'Contraste', type: 'range', min: 0.3, max: 3, step: 0.05, default: 1.1 },
+    { key: 'saturacion', label: 'Saturación', type: 'range', min: 0, max: 3, step: 0.05, default: 1.2 },
+    { key: 'contorno', label: 'Contorno', type: 'range', min: 0, max: 1, step: 0.01, default: 0 },
+    { key: 'colorContorno', label: 'Color del contorno', type: 'color', default: '#111111', showIf: p => p.contorno > 0 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const n = Math.max(2, p.niveles | 0);
+    const bl = blurRGB(data, w, h, p.suavizado * ctx.scale);
+    const lvl = new Uint16Array(w * h);
+    const cc = hexToRgb(p.colorContorno);
+    for (let i = 0; i < w * h; i++) {
+      let c = [bl[i * 3] / 255, bl[i * 3 + 1] / 255, bl[i * 3 + 2] / 255];
+      c = c.map(v => (v - 0.5) * p.contraste + 0.5);
+      const l = luma(c[0], c[1], c[2]);
+      c = c.map(v => clamp01(l + (v - l) * p.saturacion));
+      if (p.modo === 'canales') { c = c.map(v => Math.round(v * (n - 1)) / (n - 1)); lvl[i] = c[0] * 1000 + c[1] * 100 + c[2] * 10; }
+      else {
+        const ql = Math.round(clamp01(l) * (n - 1)) / (n - 1), f = l > 0.001 ? ql / l : 0;
+        c = c.map(v => clamp01(v * f)); if (ql === 0) c = [0, 0, 0]; lvl[i] = Math.round(ql * (n - 1));
+      }
+      data[i * 4] = c[0] * 255; data[i * 4 + 1] = c[1] * 255; data[i * 4 + 2] = c[2] * 255;
+    }
+    if (p.contorno > 0) {
+      const src = data.slice();
+      for (let y = 0; y < h - 1; y++) for (let x = 0; x < w - 1; x++) {
+        const i = y * w + x;
+        if (lvl[i] !== lvl[i + 1] || lvl[i] !== lvl[i + w]) {
+          const o = i * 4;
+          for (let k = 0; k < 3; k++) data[o + k] = src[o + k] + (cc[k] - src[o + k]) * p.contorno;
+        }
+      }
+    }
+    return img;
+  }
+});
+
+/* ---------- Stencil ---------- */
+registerEffect({
+  id: 'stencil',
+  name: 'Stencil',
+  description: 'Esténcil de 2 o 3 tonos planos: sombras, un color y luces, con bordes simplificados.',
+  params: [
+    { key: 'tonos', label: 'Tonos', type: 'select', default: '3', options: [['2', '2 tonos'], ['3', '3 tonos']] },
+    { key: 'suavizado', label: 'Simplificar bordes', type: 'range', min: 0, max: 30, step: 0.5, default: 3, unit: 'px' },
+    { key: 'sombras', label: 'Corte de sombras', type: 'range', min: 0, max: 1, step: 0.01, default: 0.35 },
+    { key: 'luces', label: 'Corte de luces', type: 'range', min: 0, max: 1, step: 0.01, default: 0.68, showIf: p => p.tonos === '3' },
+    { key: 'cSombra', label: 'Color de sombras', type: 'color', default: '#111111' },
+    { key: 'cMedio', label: 'Color medio', type: 'color', default: '#e8336d', showIf: p => p.tonos === '3' },
+    { key: 'cLuz', label: 'Color de luces / fondo', type: 'color', default: '#ffffff' },
+    { key: 'aspereza', label: 'Aspereza del borde', type: 'range', min: 0, max: 1, step: 0.01, default: 0.25 },
+    { key: 'escAspereza', label: 'Escala de aspereza', type: 'range', min: 1, max: 30, step: 0.5, default: 3, unit: 'px', showIf: p => p.aspereza > 0 },
+    { key: 'semilla', label: 'Semilla aleatoria', type: 'range', min: 1, max: 999, step: 1, default: 4 },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const sc = ctx.scale, seed = p.semilla | 0;
+    const flat = data.slice();
+    for (let o = 0; o < flat.length; o += 4) { const a = flat[o + 3] / 255; for (let k = 0; k < 3; k++) flat[o + k] = flat[o + k] * a + 255 * (1 - a); }
+    const bl = blurRGB(flat, w, h, p.suavizado * sc);
+    const cs = hexToRgb(p.cSombra), cm = hexToRgb(p.cMedio), cl = hexToRgb(p.cLuz);
+    const es = Math.max(0.5, p.escAspereza * sc);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, o = i * 4;
+      let l = luma(bl[i * 3], bl[i * 3 + 1], bl[i * 3 + 2]) / 255;
+      if (p.aspereza > 0) l += (fbm(x / es, y / es, seed) - 0.5) * p.aspereza * 0.3;
+      let c, light = false;
+      if (l < p.sombras) c = cs;
+      else if (p.tonos === '3' && l < p.luces) c = cm;
+      else { c = cl; light = true; }
+      if (light && ctx.transparentPaper) { data[o + 3] = 0; continue; }
+      data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2]; data[o + 3] = 255;
+    }
+    return img;
+  }
+});
+
+/* ---------- Silueta en semitono ---------- */
+registerEffect({
+  id: 'siluetaHT',
+  name: 'Silueta en semitono',
+  description: 'Convierte la imagen en una silueta de puntos que se desvanecen con un degradado (ideal para logos y DTF).',
+  params: [
+    { key: 'fuente', label: 'Silueta desde', type: 'select', default: 'alpha', options: [['alpha', 'La transparencia'], ['oscuro', 'Lo oscuro'], ['claro', 'Lo claro']] },
+    { key: 'umbral', label: 'Umbral', type: 'range', min: 0, max: 1, step: 0.01, default: 0.5, showIf: p => p.fuente !== 'alpha' },
+    { key: 'usarTono', label: 'Mezclar con los tonos de la imagen', type: 'range', min: 0, max: 1, step: 0.01, default: 0.3 },
+    { key: 'tam', label: 'Tamaño de la trama', type: 'range', min: 3, max: 60, step: 0.5, default: 10, unit: 'px' },
+    { key: 'forma', label: 'Forma', type: 'select', default: 'redondo', options: [['redondo', 'Redondo'], ['cuadrado', 'Cuadrado'], ['rombo', 'Rombo']] },
+    { key: 'angulo', label: 'Ángulo', type: 'range', min: 0, max: 90, step: 1, default: 45, unit: '°' },
+    { key: 'degradado', label: 'Degradado', type: 'select', default: 'abajo', options: [
+      ['ninguno', 'Ninguno'], ['abajo', 'Se desvanece hacia abajo'], ['arriba', 'Hacia arriba'], ['izquierda', 'Hacia la izquierda'], ['derecha', 'Hacia la derecha'], ['radial', 'Desde el centro'],
+    ]},
+    { key: 'fDegradado', label: 'Fuerza del degradado', type: 'range', min: 0, max: 1, step: 0.01, default: 0.85, showIf: p => p.degradado !== 'ninguno' },
+    { key: 'minimo', label: 'Punto mínimo', type: 'range', min: 0, max: 0.4, step: 0.01, default: 0.06 },
+    { key: 'recortar', label: 'Recortar puntos al borde de la silueta', type: 'checkbox', default: false },
+    { key: 'color', label: 'Color de los puntos', type: 'color', default: '#e03a3a' },
+    { key: 'fondo', label: 'Fondo', type: 'color', default: '#ffffff' },
+  ],
+  apply(img, p, ctx) {
+    const { width: w, height: h, data } = img;
+    const N = w * h, M = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const o = i * 4, a = data[o + 3] / 255, l = luma(data[o], data[o + 1], data[o + 2]) / 255 * a + (1 - a);
+      let s = p.fuente === 'alpha' ? (a > 0.5 ? 1 : 0) : p.fuente === 'oscuro' ? (l < p.umbral ? 1 : 0) : (l > p.umbral && a > 0.5 ? 1 : 0);
+      if (s) s = s * (1 - p.usarTono) + (1 - l) * p.usarTono * 1.4 + p.usarTono * 0.15;
+      M[i] = clamp01(s);
+    }
+    const grad = (x, y) => {
+      let t;
+      switch (p.degradado) {
+        case 'abajo': t = y / h; break;
+        case 'arriba': t = 1 - y / h; break;
+        case 'izquierda': t = 1 - x / w; break;
+        case 'derecha': t = x / w; break;
+        case 'radial': { const dx = x / w - 0.5, dy = y / h - 0.5; t = Math.sqrt(dx * dx + dy * dy) * 1.6; break; }
+        default: return 1;
+      }
+      return 1 - p.fDegradado * clamp01(t);
+    };
+    const cell = Math.max(2, p.tam * ctx.scale), an = p.angulo * Math.PI / 180, ca = Math.cos(an), sa = Math.sin(an), TAU = Math.PI * 2;
+    const col = hexToRgb(p.color), bg = hexToRgb(p.fondo);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, o = i * 4;
+      const u = (x * ca + y * sa) / cell, v = (-x * sa + y * ca) / cell;
+      const cu = Math.floor(u) + 0.5, cv = Math.floor(v) + 0.5;
+      const cx = Math.min(w - 1, Math.max(0, Math.round((cu * ca - cv * sa) * cell))), cy = Math.min(h - 1, Math.max(0, Math.round((cu * sa + cv * ca) * cell)));
+      let c = M[cy * w + cx] * grad(cx, cy);
+      if (c < p.minimo) c = 0;
+      let on = false;
+      if (c > 0 && (!p.recortar || M[i] > 0)) {
+        const fu = u - cu, fv = v - cv;
+        if (p.forma === 'cuadrado') on = Math.max(Math.abs(fu), Math.abs(fv)) < Math.sqrt(c) / 2;
+        else if (p.forma === 'rombo') { const r = c <= 0.5 ? Math.sqrt(c / 2) : 1 - Math.sqrt((1 - c) / 2); on = Math.abs(fu) + Math.abs(fv) < r; }
+        else on = 0.5 + 0.25 * (Math.cos(TAU * fu) + Math.cos(TAU * fv)) > 1 - c;
+      }
+      if (on) { data[o] = col[0]; data[o + 1] = col[1]; data[o + 2] = col[2]; data[o + 3] = 255; }
+      else if (ctx.transparentPaper) data[o + 3] = 0;
+      else { data[o] = bg[0]; data[o + 1] = bg[1]; data[o + 2] = bg[2]; data[o + 3] = 255; }
+    }
+    return img;
+  }
+});
+
+/* =====================================================================
+   FIN EFECTOS
+   ===================================================================== */
+
+/* =====================================================================
+   MODOS DE FUSIÓN (como Photoshop) — se aplican a cada efecto sobre lo anterior
+   ===================================================================== */
+const BLEND_MODES = [
+  ['normal', 'Normal'],
+  ['darken', 'Oscurecer'], ['multiply', 'Multiplicar'], ['color-burn', 'Subexponer color'],
+  ['lighten', 'Aclarar'], ['screen', 'Trama'], ['color-dodge', 'Sobreexponer color'],
+  ['overlay', 'Superponer'], ['soft-light', 'Luz suave'], ['hard-light', 'Luz fuerte'],
+  ['difference', 'Diferencia'], ['exclusion', 'Exclusión'],
+  ['hue', 'Tono'], ['saturation', 'Saturación'], ['color', 'Color'], ['luminosity', 'Luminosidad'],
+];
+const BLEND_GROUPS = [1, 4, 7, 10, 12]; // índices donde Photoshop pone un separador
+
+function blendChannel(mode, b, s) {
+  switch (mode) {
+    case 'multiply': return b * s;
+    case 'screen': return b + s - b * s;
+    case 'overlay': return blendChannel('hard-light', s, b);
+    case 'darken': return Math.min(b, s);
+    case 'lighten': return Math.max(b, s);
+    case 'color-dodge': return b === 0 ? 0 : s >= 1 ? 1 : Math.min(1, b / (1 - s));
+    case 'color-burn': return b >= 1 ? 1 : s <= 0 ? 0 : 1 - Math.min(1, (1 - b) / s);
+    case 'hard-light': return s <= 0.5 ? b * 2 * s : blendChannel('screen', b, 2 * s - 1);
+    case 'soft-light': {
+      if (s <= 0.5) return b - (1 - 2 * s) * b * (1 - b);
+      const d = b <= 0.25 ? ((16 * b - 12) * b + 4) * b : Math.sqrt(b);
+      return b + (2 * s - 1) * (d - b);
+    }
+    case 'difference': return Math.abs(b - s);
+    case 'exclusion': return b + s - 2 * b * s;
+    default: return s;
+  }
+}
+const lumOf = c => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+function clipColor(c) {
+  const l = lumOf(c), n = Math.min(c[0], c[1], c[2]), x = Math.max(c[0], c[1], c[2]);
+  if (n < 0) c = c.map(v => l + (v - l) * l / (l - n));
+  if (x > 1) c = c.map(v => l + (v - l) * (1 - l) / (x - l));
+  return c;
+}
+const setLum = (c, l) => { const d = l - lumOf(c); return clipColor([c[0] + d, c[1] + d, c[2] + d]); };
+const satOf = c => Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]);
+function setSat(c, s) {
+  const mx = Math.max(c[0], c[1], c[2]), mn = Math.min(c[0], c[1], c[2]);
+  if (mx === mn) return [0, 0, 0];
+  return c.map(v => (v - mn) * s / (mx - mn));
+}
+function blendPixel(mode, cb, cs) {
+  switch (mode) {
+    case 'hue':        return setLum(setSat(cs, satOf(cb)), lumOf(cb));
+    case 'saturation': return setLum(setSat(cb, satOf(cs)), lumOf(cb));
+    case 'color':      return setLum(cs, lumOf(cb));
+    case 'luminosity': return setLum(cb, lumOf(cs));
+    default: return [blendChannel(mode, cb[0], cs[0]), blendChannel(mode, cb[1], cs[1]), blendChannel(mode, cb[2], cs[2])];
+  }
+}
+// base = lo que había antes del efecto, top = resultado del efecto. Devuelve top mezclado.
+function blendImages(base, top, mode, opacity) {
+  const bd = base.data, td = top.data;
+  for (let o = 0; o < td.length; o += 4) {
+    const ab = bd[o + 3] / 255, as = td[o + 3] / 255 * opacity;
+    const cb = [bd[o] / 255, bd[o + 1] / 255, bd[o + 2] / 255];
+    const cs = [td[o] / 255, td[o + 1] / 255, td[o + 2] / 255];
+    const bl = mode === 'normal' ? cs : blendPixel(mode, cb, cs);
+    const ao = as + ab * (1 - as);
+    if (ao <= 0) { td[o + 3] = 0; continue; }
+    for (let k = 0; k < 3; k++) {
+      const mix = (1 - ab) * cs[k] + ab * bl[k];
+      td[o + k] = ((as * mix + ab * cb[k] * (1 - as)) / ao) * 255;
+    }
+    td[o + 3] = ao * 255;
+  }
+  return top;
+}
+
+/* ---------- Estado ---------- */
+const STORAGE_KEY = 'pepper-efectos-v1';
+const PREVIEW_MAX = 1600;
+let uidCounter = 1;
+const state = { pipeline: [], fullRes: false, compare: false, split: 50, zoom: 'fit' };
+let srcFull = null, srcPreview = null, fileBase = 'imagen';
+
+function newStep(id, params) {
+  const def = EFFECTS[id];
+  return { uid: uidCounter++, id, enabled: true, open: true, blend: 'normal', opacity: 100,
+           params: Object.assign(defaultParams(def), params || {}) };
+}
+
+function serialize() {
+  return { version: 1, pipeline: state.pipeline.map(s => ({ id: s.id, enabled: s.enabled, open: s.open, blend: s.blend, opacity: s.opacity, params: s.params })) };
+}
+function deserialize(obj) {
+  if (!obj || !Array.isArray(obj.pipeline)) return false;
+  const steps = obj.pipeline.filter(s => EFFECTS[s.id]).map(s => {
+    const st = newStep(s.id, s.params);
+    st.enabled = s.enabled !== false; st.open = !!s.open;
+    if (BLEND_MODES.some(m => m[0] === s.blend)) st.blend = s.blend;
+    if (typeof s.opacity === 'number') st.opacity = Math.max(0, Math.min(100, s.opacity));
+    return st;
+  });
+  state.pipeline = steps;
+  return true;
+}
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize())); } catch (e) {}
+}
+function restore() {
+  try { const raw = localStorage.getItem(STORAGE_KEY); if (raw && deserialize(JSON.parse(raw))) return; } catch (e) {}
+  state.pipeline = [newStep('retro')];
+}
+
+/* ---------- DOM ---------- */
+const $ = s => document.querySelector(s);
+const out = $('#out'), orig = $('#orig'), stage = $('#stage'), viewport = $('#viewport'), handle = $('#handle');
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function iconBtn(txt, title, fn) {
+  const b = el('button', 'icon-btn', txt); b.title = title;
+  b.onclick = e => { e.stopPropagation(); fn(); };
+  return b;
+}
+function setStatus(t) { $('#status').textContent = t; }
+function setSeg(v, label) {
+  $('#seg').textContent = String(Math.min(9999, Math.max(0, Math.round(v)))).padStart(4, '0');
+  if (label) $('#segLabel').textContent = label;
+}
+function fmt(v, step) {
+  const dec = String(step).includes('.') ? String(step).split('.')[1].length : 0;
+  return Number(v).toFixed(dec);
+}
+
+/* ---------- Panel de efectos ---------- */
+function buildPanel() {
+  const list = $('#pipeline');
+  list.innerHTML = '';
+  if (!state.pipeline.length) list.appendChild(el('p', 'desc', 'No hay efectos. Agregá uno abajo.'));
+  state.pipeline.forEach((step, idx) => {
+    const def = EFFECTS[step.id];
+    const card = el('div', 'card' + (step.enabled ? '' : ' off') + (step.open ? ' open' : ''));
+    const head = el('div', 'card-head');
+    const chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.checked = step.enabled; chk.title = 'Activar / desactivar';
+    chk.onclick = e => e.stopPropagation();
+    chk.onchange = () => { step.enabled = chk.checked; card.classList.toggle('off', !step.enabled); changed(); };
+    const tag = el('span', 'mode-tag');
+    updateTag(tag, step);
+    head.append(chk, el('span', 'name', def.name), tag,
+      iconBtn('↑', 'Subir', () => move(idx, -1)),
+      iconBtn('↓', 'Bajar', () => move(idx, 1)),
+      iconBtn('⟲', 'Restablecer valores', () => { step.params = defaultParams(def); buildPanel(); changed(); }),
+      iconBtn('✕', 'Quitar', () => { state.pipeline.splice(idx, 1); buildPanel(); changed(); }));
+    head.onclick = () => { step.open = !step.open; card.classList.toggle('open', step.open); save(); };
+
+    const body = el('div', 'card-body');
+    if (def.description) body.appendChild(el('p', 'desc', def.description));
+    body.appendChild(makeBlendControls(step, tag));
+    def.params.forEach(prm => {
+      if (prm.showIf && !prm.showIf(step.params)) return;
+      body.appendChild(makeControl(step, prm));
+    });
+    card.append(head, body);
+    list.appendChild(card);
+  });
+}
+
+function makeControl(step, prm) {
+  if (prm.type === 'header') return el('div', 'group-title', prm.label);
+  const wrap = el('div', 'ctrl');
+  const v = step.params[prm.key];
+  if (prm.type === 'checkbox') {
+    const lab = el('label', 'check');
+    const c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!v;
+    c.onchange = () => { step.params[prm.key] = c.checked; buildPanel(); changed(); };
+    lab.append(c, document.createTextNode(prm.label));
+    return lab;
+  }
+  const lab = el('label');
+  lab.appendChild(el('span', null, prm.label));
+  wrap.appendChild(lab);
+  if (prm.type === 'range') {
+    const val = el('span', 'val', fmt(v, prm.step) + (prm.unit || ''));
+    lab.appendChild(val);
+    const r = document.createElement('input');
+    Object.assign(r, { type: 'range', min: prm.min, max: prm.max, step: prm.step, value: v });
+    r.oninput = () => { step.params[prm.key] = parseFloat(r.value); val.textContent = fmt(r.value, prm.step) + (prm.unit || ''); changed(); };
+    r.onchange = () => { if (dependsOn(step, prm.key)) buildPanel(); };
+    r.ondblclick = () => { r.value = prm.default; r.oninput(); r.onchange(); };
+    r.title = 'Doble clic: valor por defecto';
+    wrap.appendChild(r);
+  } else if (prm.type === 'color') {
+    const c = document.createElement('input'); c.type = 'color'; c.value = v;
+    c.oninput = () => { step.params[prm.key] = c.value; changed(); };
+    wrap.appendChild(c);
+  } else if (prm.type === 'select') {
+    const s = document.createElement('select');
+    prm.options.forEach(([val, txt]) => { const o = el('option', null, txt); o.value = val; s.appendChild(o); });
+    s.value = v;
+    s.onchange = () => { step.params[prm.key] = s.value; buildPanel(); changed(); };
+    wrap.appendChild(s);
+  }
+  return wrap;
+}
+
+function updateTag(tag, step) {
+  const name = (BLEND_MODES.find(m => m[0] === step.blend) || BLEND_MODES[0])[1];
+  const parts = [];
+  if (step.blend !== 'normal') parts.push(name);
+  if (step.opacity < 100) parts.push(step.opacity + '%');
+  tag.textContent = parts.join(' · ');
+}
+
+function makeBlendControls(step, tag) {
+  const box = el('div', 'blend-box');
+  const row = el('div', 'row');
+  const sel = document.createElement('select');
+  sel.title = 'Modo de fusión con lo que hay debajo';
+  BLEND_MODES.forEach(([val, txt], i) => {
+    if (BLEND_GROUPS.includes(i)) { const sep = el('option', null, '──────────'); sep.disabled = true; sel.appendChild(sep); }
+    const o = el('option', null, txt); o.value = val; sel.appendChild(o);
+  });
+  sel.value = step.blend;
+  sel.onchange = () => { step.blend = sel.value; updateTag(tag, step); changed(); };
+  row.appendChild(sel);
+  box.appendChild(row);
+  const ctrl = el('div', 'ctrl');
+  const lab = el('label'); lab.appendChild(el('span', null, 'Opacidad'));
+  const val = el('span', 'val', step.opacity + '%'); lab.appendChild(val);
+  const r = document.createElement('input');
+  Object.assign(r, { type: 'range', min: 0, max: 100, step: 1, value: step.opacity, title: 'Doble clic: 100%' });
+  r.oninput = () => { step.opacity = parseInt(r.value, 10); val.textContent = step.opacity + '%'; updateTag(tag, step); changed(); };
+  r.ondblclick = () => { r.value = 100; r.oninput(); };
+  ctrl.append(lab, r);
+  box.appendChild(ctrl);
+  return box;
+}
+
+// ¿Algún control de este efecto depende (showIf) del parámetro que cambió?
+function dependsOn(step, key) {
+  return EFFECTS[step.id].params.some(p => p.showIf && p.key !== key);
+}
+
+function move(idx, dir) {
+  const j = idx + dir;
+  if (j < 0 || j >= state.pipeline.length) return;
+  const arr = state.pipeline; [arr[idx], arr[j]] = [arr[j], arr[idx]];
+  buildPanel(); changed();
+}
+
+function fillAddSelect() {
+  const s = $('#addSelect'); s.innerHTML = '';
+  Object.values(EFFECTS).forEach(def => { const o = el('option', null, def.name); o.value = def.id; s.appendChild(o); });
+}
+
+/* ---------- Procesamiento ---------- */
+function runPipeline(srcCanvas, scale, opts) {
+  const c = srcCanvas.getContext('2d', { willReadFrequently: true });
+  let img = c.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
+  const ctx = Object.assign({ scale, transparentPaper: false }, opts || {});
+  for (const step of state.pipeline) {
+    if (!step.enabled || step.opacity <= 0) continue;
+    const mix = step.blend !== 'normal' || step.opacity < 100;
+    const before = mix ? new ImageData(new Uint8ClampedArray(img.data), img.width, img.height) : null;
+    img = EFFECTS[step.id].apply(img, step.params, ctx) || img;
+    if (mix) img = blendImages(before, img, step.blend, step.opacity / 100);
+  }
+  return img;
+}
+
+let renderTimer = null;
+function changed() { save(); scheduleRender(); }
+function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(render, 40); }
+
+function render() {
+  if (!srcFull) return;
+  const src = state.fullRes ? srcFull : srcPreview;
+  const scale = src.width / srcFull.width;
+  setStatus('Procesando…');
+  requestAnimationFrame(() => {
+    const t0 = performance.now();
+    let img;
+    try { img = runPipeline(src, scale); }
+    catch (e) { console.error(e); setStatus('Error: ' + e.message); return; }
+    out.width = img.width; out.height = img.height;
+    out.getContext('2d').putImageData(img, 0, 0);
+    orig.width = src.width; orig.height = src.height;
+    orig.getContext('2d').drawImage(src, 0, 0);
+    const ms = Math.round(performance.now() - t0);
+    setStatus(`${srcFull.width}×${srcFull.height}px` + (scale < 1 ? ' · vista previa reducida' : ' · resolución completa'));
+    setSeg(ms, 'MS');
+    layout();
+  });
+}
+
+/* ---------- Visor ---------- */
+function layout() {
+  if (!srcFull) return;
+  const W = srcFull.width, H = srcFull.height;
+  let z;
+  if (state.zoom === 'fit') {
+    const r = viewport.getBoundingClientRect();
+    z = Math.min((r.width - 48) / W, (r.height - 48) / H, 1);
+  } else z = parseFloat(state.zoom);
+  stage.style.width = Math.round(W * z) + 'px';
+  stage.style.height = Math.round(H * z) + 'px';
+  const pxRatio = z * W / out.width; // píxeles de pantalla por píxel del canvas
+  const ir = pxRatio >= 1.5 ? 'pixelated' : 'auto';
+  out.style.imageRendering = orig.style.imageRendering = ir;
+  updateCompare();
+}
+
+function updateCompare() {
+  stage.classList.toggle('compare', state.compare);
+  $('#btnCompare').classList.toggle('on', state.compare);
+  orig.style.clipPath = `inset(0 ${100 - state.split}% 0 0)`;
+  handle.style.left = state.split + '%';
+}
+
+let dragging = false;
+function splitFromEvent(e) {
+  const r = stage.getBoundingClientRect();
+  state.split = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
+  updateCompare();
+}
+stage.addEventListener('pointerdown', e => { if (!state.compare) return; dragging = true; stage.setPointerCapture(e.pointerId); splitFromEvent(e); });
+stage.addEventListener('pointermove', e => { if (dragging) splitFromEvent(e); });
+stage.addEventListener('pointerup', () => { dragging = false; });
+
+/* ---------- Carga de imagen ---------- */
+async function loadFile(file) {
+  if (!file || !file.type.startsWith('image/')) { setStatus('Ese archivo no es una imagen'); return; }
+  setStatus('Cargando…');
+  let bmp;
+  try { bmp = await createImageBitmap(file); }
+  catch (e) { setStatus('No se pudo abrir la imagen (formato no soportado por el navegador)'); return; }
+  srcFull = document.createElement('canvas');
+  srcFull.width = bmp.width; srcFull.height = bmp.height;
+  srcFull.getContext('2d', { willReadFrequently: true }).drawImage(bmp, 0, 0);
+  const s = Math.min(1, PREVIEW_MAX / Math.max(bmp.width, bmp.height));
+  srcPreview = document.createElement('canvas');
+  srcPreview.width = Math.max(1, Math.round(bmp.width * s));
+  srcPreview.height = Math.max(1, Math.round(bmp.height * s));
+  const pc = srcPreview.getContext('2d', { willReadFrequently: true });
+  pc.imageSmoothingQuality = 'high';
+  pc.drawImage(bmp, 0, 0, srcPreview.width, srcPreview.height);
+  fileBase = (file.name || 'imagen').replace(/\.[^.]+$/, '') || 'imagen';
+  $('#fileName').textContent = file.name || 'Imagen pegada';
+  $('#empty').style.display = 'none';
+  stage.style.display = '';
+  $('#btnExport').disabled = $('#btnExportInk').disabled = false;
+  render();
+}
+
+$('#btnOpen').onclick = () => $('#fileInput').click();
+$('#empty').onclick = () => $('#fileInput').click();
+$('#fileInput').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
+
+['dragenter', 'dragover'].forEach(t => viewport.addEventListener(t, e => { e.preventDefault(); viewport.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(t => viewport.addEventListener(t, e => { e.preventDefault(); viewport.classList.remove('drag'); }));
+viewport.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+window.addEventListener('paste', e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (item) loadFile(item.getAsFile());
+});
+
+/* ---------- Teclas STOP y "mantener original" ---------- */
+const holdOn = () => { if (srcFull) stage.classList.add('hold'); };
+const holdOff = () => stage.classList.remove('hold');
+$('#btnHold').addEventListener('pointerdown', holdOn);
+['pointerup', 'pointerleave', 'pointercancel'].forEach(t => $('#btnHold').addEventListener(t, holdOff));
+let stopArmed = false, stopTimer = null;
+$('#btnStop').onclick = () => {
+  if (!state.pipeline.length) return;
+  if (!stopArmed) {                       // primer toque: avisa; segundo toque: borra
+    stopArmed = true; setStatus('STOP: tocá de nuevo para quitar todos los efectos');
+    clearTimeout(stopTimer); stopTimer = setTimeout(() => { stopArmed = false; setStatus(''); }, 3000);
+    return;
+  }
+  stopArmed = false; clearTimeout(stopTimer);
+  state.pipeline = []; buildPanel(); changed(); setStatus('Efectos quitados');
+};
+
+/* ---------- Exportar ---------- */
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function exportPNG(transparent) {
+  if (!srcFull) return;
+  setStatus('Exportando a resolución completa…');
+  setTimeout(() => {
+    try {
+      const img = runPipeline(srcFull, 1, { transparentPaper: transparent });
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      c.getContext('2d').putImageData(img, 0, 0);
+      c.toBlob(b => { download(b, `${fileBase}-${transparent ? 'tinta' : 'efecto'}.png`); setStatus('Exportado ✓'); }, 'image/png');
+    } catch (e) { console.error(e); setStatus('Error al exportar: ' + e.message); }
+  }, 30);
+}
+$('#btnExport').onclick = () => exportPNG(false);
+$('#btnExportInk').onclick = () => exportPNG(true);
+
+/* ---------- Ajustes guardados (.json) ---------- */
+$('#btnSavePreset').onclick = () => {
+  download(new Blob([JSON.stringify(serialize(), null, 2)], { type: 'application/json' }), 'ajustes-efectos.json');
+};
+$('#btnLoadPreset').onclick = () => $('#presetInput').click();
+$('#presetInput').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    if (!deserialize(JSON.parse(await f.text()))) throw new Error('formato inválido');
+    buildPanel(); changed(); setStatus('Ajustes cargados ✓');
+  } catch (err) { setStatus('No se pudieron cargar los ajustes: ' + err.message); }
+};
+
+/* ---------- Controles generales ---------- */
+$('#btnAdd').onclick = () => { state.pipeline.push(newStep($('#addSelect').value)); buildPanel(); changed(); };
+$('#fullRes').onchange = e => { state.fullRes = e.target.checked; render(); };
+$('#zoom').onchange = e => { state.zoom = e.target.value; layout(); };
+$('#btnCompare').onclick = () => { state.compare = !state.compare; updateCompare(); };
+window.addEventListener('keydown', e => {
+  if (e.target.matches('input, select, textarea')) return;
+  if (e.key === 'c' || e.key === 'C') { state.compare = !state.compare; updateCompare(); }
+});
+window.addEventListener('resize', () => { if (state.zoom === 'fit') layout(); });
+
+/* ---------- Inicio ---------- */
+restore();
+fillAddSelect();
+buildPanel();
+</script>
+</body>
+</html>
