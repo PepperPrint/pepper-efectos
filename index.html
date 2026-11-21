@@ -179,7 +179,63 @@ select option{text-transform:none}
 .empty{margin:auto;text-align:center;color:var(--label-dim);border:2px dashed var(--slate-line);border-radius:14px;padding:46px 54px;cursor:pointer;background:#1d232a;
   font-size:11px;letter-spacing:.06em}
 .empty strong{display:block;color:var(--label);font-size:13px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
+.empty .touch{display:none}
 .viewport.drag .empty,.viewport.drag .stage{outline:2px dashed var(--led);outline-offset:6px}
+
+/* ---------- celular y tablet chica ---------- */
+.stage.compare{touch-action:none}
+#btnHold{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+@media (max-width: 820px){
+  html,body{height:auto;font-size:13px}
+  .app{display:flex;flex-direction:column;height:auto;min-height:100vh;padding:8px;gap:8px}
+  /* visor fijo arriba */
+  .right{order:-1;position:sticky;top:0;z-index:20;padding:8px;border-radius:0 0 16px 16px;margin:-8px -8px 0}
+  aside{order:1}
+  .toolbar{flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .toolbar .module{padding:6px 8px;gap:8px}
+  .toolbar .module:first-child{flex:1 1 100% !important}
+  .toolbar .info{display:none}
+  .lcd{padding:4px 8px}
+  .lcd .file{font-size:12px}.lcd .status{font-size:10px}
+  .seg{min-width:70px;font-size:18px;padding:3px 7px}
+  .tb-keys{flex:1 1 0;flex-direction:row;align-items:center}
+  .tb-keys .mod-label{display:none}
+  .tb-keys select,.tb-keys .btn{width:100%;padding:9px 8px}
+  .bezel{flex:none;height:34vh;min-height:200px;padding:6px;border-radius:10px}
+  .viewport{padding:8px}
+  .empty{padding:22px 18px}
+  /* panel de controles debajo */
+  aside{overflow:visible;border-radius:16px}
+  .scroll{overflow:visible;padding:4px 10px 10px}
+  .brand{padding:12px 14px 8px}
+  .side-foot{position:sticky;bottom:0;z-index:15;border-radius:0 0 16px 16px;
+    background:linear-gradient(180deg,var(--plastic),var(--plastic-lo));box-shadow:0 -6px 16px #0003,inset 0 1px 0 #fff}
+  .side-foot{padding:8px 10px 10px}
+  .keys{gap:6px}
+  .key-cap{font-size:7.5px}
+  .big-keys{margin-top:8px;justify-content:space-between;padding:0 6px}
+  .big-keys .key-wrap{gap:8px}
+  .round{width:44px;height:44px;box-shadow:0 0 0 4px #d3d2cd,0 0 0 5px #b5b4af,0 4px 0 4px #a9a8a3,0 7px 10px 4px #0005}
+  .round.stop{width:38px;height:38px}
+  .empty .desk{display:none}
+  .empty .touch{display:inline}
+  /* controles más grandes para el dedo */
+  input[type=range]{height:30px}
+  input[type=range]::-webkit-slider-runnable-track{height:8px;border-radius:4px}
+  input[type=range]::-webkit-slider-thumb{width:30px;height:22px;margin-top:-7px;border-radius:6px}
+  input[type=range]::-moz-range-thumb{width:30px;height:22px}
+  input[type=checkbox]{width:16px;height:16px}
+  select{padding:9px 8px;font-size:12px}
+  input[type=color]{height:34px}
+  .icon-btn{width:32px;height:30px;line-height:30px;font-size:13px}
+  .card-head{padding:11px 8px 11px 10px}
+  .pill{height:28px;border-radius:14px}
+  .ctrl > label{font-size:10.5px}
+}
+@media (max-width: 380px){
+  .keys{grid-template-columns:repeat(2,1fr)}
+  .bezel{height:36vh}
+}
 </style>
 </head>
 <body>
@@ -243,8 +299,8 @@ select option{text-transform:none}
     <div class="bezel">
       <div class="viewport" id="viewport">
         <div class="empty" id="empty">
-          <strong>Arrastrá una imagen acá</strong>
-          o pegala con Ctrl/Cmd + V, o hacé clic para abrir
+          <strong><span class="desk">Arrastrá una imagen acá</span><span class="touch">Tocá para elegir una imagen</span></strong>
+          <span class="desk">o pegala con Ctrl/Cmd + V, o hacé clic para abrir</span><span class="touch">desde la galería o la cámara</span>
         </div>
         <div class="stage" id="stage" style="display:none">
           <canvas id="out"></canvas>
@@ -3064,6 +3120,7 @@ window.addEventListener('paste', e => {
 const holdOn = () => { if (srcFull) stage.classList.add('hold'); };
 const holdOff = () => stage.classList.remove('hold');
 $('#btnHold').addEventListener('pointerdown', holdOn);
+$('#btnHold').addEventListener('contextmenu', e => e.preventDefault());
 ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => $('#btnHold').addEventListener(t, holdOff));
 let stopArmed = false, stopTimer = null;
 $('#btnStop').onclick = () => {
