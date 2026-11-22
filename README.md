@@ -16,6 +16,7 @@ Hecha por [Pepper Print](https://github.com/PepperPrint) para el trabajo diario 
 - **Tus imágenes no salen de tu computadora.** Todo se procesa en tu navegador; no hay servidor ni cuentas.
 - **Efectos que se combinan como capas.** Apilás varios, los reordenás y cada uno tiene **modo de fusión** (los mismos 16 de Photoshop: Multiplicar, Trama, Superponer…) y **opacidad**.
 - **Listo para producción.** Exporta PNG a resolución completa, y con **Solo tinta** el fondo sale transparente — ideal para DTF y serigrafía.
+- **Recorte automático.** Al abrir una foto podés elegir *Recortar silueta* (quita el fondo y deja a la persona) o *Recortar cabeza*. Corre en tu navegador: la primera vez baja el modelo (~16 MB) y la foto no sale de tu computadora.
 - **Vista antes / después** con un divisor que arrastrás sobre la imagen.
 
 ## Antes y después

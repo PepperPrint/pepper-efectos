@@ -246,6 +246,11 @@ select option{text-transform:none}
       <div class="module">
         <div class="mod-label">Original</div>
         <button class="btn" id="btnOpen">Abrir imagen</button>
+        <select id="cutMode" title="Recorte automático: quita el fondo y deja solo la persona o su cabeza">
+          <option value="">Sin recortar</option>
+          <option value="silueta">Recortar silueta</option>
+          <option value="cabeza">Recortar cabeza</option>
+        </select>
         <label class="check"><input type="checkbox" id="fullRes"> Vista previa a resolución completa</label>
       </div>
 
@@ -3086,6 +3091,14 @@ async function loadFile(file) {
   let bmp;
   try { bmp = await createImageBitmap(file); }
   catch (e) { setStatus('No se pudo abrir la imagen (formato no soportado por el navegador)'); return; }
+  origBmp = bmp;
+  fileBase = (file.name || 'imagen').replace(/\.[^.]+$/, '') || 'imagen';
+  $('#fileName').textContent = file.name || 'Imagen pegada';
+  if ($('#cutMode').value) applyCut(); else setSource(bmp);
+}
+
+let origBmp = null;
+function setSource(bmp) {
   srcFull = document.createElement('canvas');
   srcFull.width = bmp.width; srcFull.height = bmp.height;
   srcFull.getContext('2d', { willReadFrequently: true }).drawImage(bmp, 0, 0);
@@ -3096,13 +3109,70 @@ async function loadFile(file) {
   const pc = srcPreview.getContext('2d', { willReadFrequently: true });
   pc.imageSmoothingQuality = 'high';
   pc.drawImage(bmp, 0, 0, srcPreview.width, srcPreview.height);
-  fileBase = (file.name || 'imagen').replace(/\.[^.]+$/, '') || 'imagen';
-  $('#fileName').textContent = file.name || 'Imagen pegada';
   $('#empty').style.display = 'none';
   stage.style.display = '';
   $('#btnExport').disabled = $('#btnExportInk').disabled = false;
   render();
 }
+
+/* ---------- Recorte automático (silueta o cabeza) ----------
+   MediaPipe "selfie multiclass" corre en el navegador: se baja el modelo (~16 MB, una sola vez),
+   la imagen no sale de la computadora. Clases: 0 fondo, 1 pelo, 2 piel, 3 cara, 4 ropa, 5 accesorios. */
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+let segmenterP = null;
+function getSegmenter() {
+  return segmenterP ||= (async () => {
+    const { FilesetResolver, ImageSegmenter } = await import(MP + '/vision_bundle.mjs');
+    const fs = await FilesetResolver.forVisionTasks(MP + '/wasm');
+    const opts = delegate => ({ baseOptions: { delegate, modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite' },
+      runningMode: 'IMAGE', outputCategoryMask: true, outputConfidenceMasks: false });
+    try { return await ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch { return ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+  })().catch(e => { segmenterP = null; throw e; });
+}
+
+async function applyCut() {
+  if (!origBmp) return;
+  const mode = $('#cutMode').value;
+  if (!mode) { setSource(origBmp); return; }
+  setStatus('Recortando… (la primera vez baja el modelo, ~16 MB)');
+  let cat, w, h;
+  try {
+    const seg = await getSegmenter();
+    const r = seg.segment(origBmp);
+    w = r.categoryMask.width; h = r.categoryMask.height;
+    cat = r.categoryMask.getAsUint8Array().slice();
+    r.close();
+  } catch (e) { console.error(e); setStatus('No se pudo cargar el recorte automático (¿sin internet?)'); setSource(origBmp); return; }
+  // cabeza: pelo + cara, y los accesorios (lentes, gorra) que caen sobre esa zona
+  const head = c => c === 1 || c === 3;
+  let keep = mode === 'cabeza' ? head : c => c !== 0;
+  const box = test => { let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (test(cat[y * w + x])) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return x1 < 0 ? null : { x0, y0, x1, y1 }; };
+  let b = box(keep);
+  if (b && mode === 'cabeza') {
+    const hb = b, inHead = i => { const x = i % w, y = (i / w) | 0; return x >= hb.x0 && x <= hb.x1 && y >= hb.y0 && y <= hb.y1; };
+    const m = new Uint8Array(w * h); for (let i = 0; i < m.length; i++) m[i] = head(cat[i]) || (cat[i] === 5 && inHead(i)) ? 1 : 0;
+    cat = m; keep = c => c === 1; b = box(keep);
+  }
+  if (!b) { setStatus(mode === 'cabeza' ? 'No encontré una cara en la foto' : 'No encontré una persona en la foto'); setSource(origBmp); return; }
+  // máscara a tamaño real, con el borde suavizado
+  const mc = new OffscreenCanvas(w, h), md = new ImageData(w, h);
+  for (let i = 0; i < w * h; i++) md.data[i * 4 + 3] = keep(cat[i]) ? 255 : 0;
+  mc.getContext('2d').putImageData(md, 0, 0);
+  const sx = origBmp.width / w, sy = origBmp.height / h, pad = Math.round(Math.max(origBmp.width, origBmp.height) * 0.02);
+  const X = Math.max(0, Math.floor(b.x0 * sx) - pad), Y = Math.max(0, Math.floor(b.y0 * sy) - pad);
+  const W = Math.min(origBmp.width, Math.ceil((b.x1 + 1) * sx) + pad) - X, H = Math.min(origBmp.height, Math.ceil((b.y1 + 1) * sy) + pad) - Y;
+  const cut = new OffscreenCanvas(W, H), cc = cut.getContext('2d');
+  cc.drawImage(origBmp, -X, -Y);
+  cc.globalCompositeOperation = 'destination-in';
+  cc.filter = `blur(${Math.max(0.6, sx * 0.6).toFixed(2)}px)`;
+  cc.imageSmoothingQuality = 'high';
+  cc.drawImage(mc, -X, -Y, origBmp.width, origBmp.height);
+  setSource(cut);
+}
+$('#cutMode').onchange = applyCut;
 
 $('#btnOpen').onclick = () => $('#fileInput').click();
 $('#empty').onclick = () => $('#fileInput').click();
