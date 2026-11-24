@@ -185,7 +185,7 @@ select option{text-transform:none}
 .tag{position:absolute;top:8px;padding:3px 6px;font:700 10px/1 "Courier New",monospace;border-radius:3px;background:var(--lcd);color:var(--lcd-text);display:none;pointer-events:none}
 .stage.compare .tag{display:block}
 .tag.l{left:8px}.tag.r{right:8px}
-#textEdit{position:absolute;inset:0;width:100%;height:100%;touch-action:none;overflow:visible}
+#textEdit{position:absolute;inset:0;width:100%;height:100%;touch-action:none;overflow:visible;pointer-events:none}
 #textEdit .hit{cursor:move}
 #letterInfo{position:absolute;top:10px;right:10px;display:none;pointer-events:none;background:var(--lcd);color:var(--lcd-text);
   font:11px/1.45 "Courier New",monospace;border-radius:5px;padding:7px 10px;box-shadow:inset 0 0 0 2px #0002,0 4px 14px #0006;white-space:nowrap}
@@ -3023,11 +3023,14 @@ function needsCutoutWarning() {
   return true;
 }
 
+let blankCanvas = false;
 function startBlankCanvas() {
   const c = newCanvas(1080, 1350), g = c.getContext('2d');
   g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
   fileBase = 'texto';
   $('#fileName').textContent = 'lienzo en blanco';
+  origBmp = null; blankCanvas = true;
+  $('#cutMode').value = '';
   setSource(c);
 }
 
@@ -3388,7 +3391,7 @@ async function loadFile(file) {
   let bmp;
   try { bmp = await createImageBitmap(file); }
   catch (e) { setStatus('No se pudo abrir la imagen (formato no soportado por el navegador)'); return; }
-  origBmp = bmp;
+  origBmp = bmp; blankCanvas = false;
   fileBase = (file.name || 'imagen').replace(/\.[^.]+$/, '') || 'imagen';
   $('#fileName').textContent = file.name || 'Imagen pegada';
   if ($('#cutMode').value) applyCut(); else setSource(bmp);
@@ -3568,7 +3571,8 @@ $('#presetInput').onchange = async e => {
   if (!f) return;
   try {
     if (!deserialize(JSON.parse(await f.text()))) throw new Error('formato inválido');
-    buildPanel(); changed(); setStatus('Ajustes cargados ✓');
+    state.selectedText = null; state.selectedLetter = null;
+    buildPanel(); buildTextPanel(); buildLetterBar(); changed(); setStatus('Ajustes cargados ✓');
   } catch (err) { setStatus('No se pudieron cargar los ajustes: ' + err.message); }
 };
 
@@ -3598,6 +3602,21 @@ const TEXT_PARAMS = [
 ];
 function textTitle(t) { return (t.text || '').split('\n')[0].trim().slice(0, 22) || 'Texto'; }
 function textTag(t) { return (t.position === 'abajo' ? 'ABAJO' : 'ARRIBA') + (t.fx ? ' · FX' : ''); }
+// Al editar el texto, las letras retocadas siguen a su letra (no a su posición).
+function shiftLetters(layer, before, after) {
+  const a = Array.from(before || ''), b = Array.from(after || '');
+  let pre = 0;
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++;
+  let suf = 0;
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++;
+  const delta = b.length - a.length, out = {};
+  for (const [k, v] of Object.entries(layer.letters || {})) {
+    const i = +k;
+    if (i < pre) out[i] = v;
+    else if (i >= a.length - suf) out[i + delta] = v;
+  }
+  layer.letters = out;
+}
 function mezclar(layer) {
   layer.seed = Math.floor(Math.random() * 1e9);
   for (const L of Object.values(layer.letters)) delete L.face;
@@ -3624,13 +3643,16 @@ function buildTextPanel() {
     const body = el('div', 'card-body');
     const ta = document.createElement('textarea');
     ta.className = 'text-input'; ta.value = t.text; ta.rows = 2; ta.spellcheck = false;
-    ta.oninput = () => { t.text = ta.value; name.textContent = textTitle(t); if (state.selectedLetter && state.selectedLetter.uid === t.uid) { state.selectedLetter = null; buildLetterBar(); } changed(); };
+    ta.oninput = () => { shiftLetters(t, t.text, ta.value); t.text = ta.value; name.textContent = textTitle(t); if (state.selectedLetter && state.selectedLetter.uid === t.uid) { state.selectedLetter = null; buildLetterBar(); } changed(); };
     body.appendChild(ta);
     if (t.position === 'abajo' && needsCutoutWarning()) {
-      const w = el('div', 'text-warn', 'Este texto queda tapado por la foto. Recortá la silueta para verlo detrás.');
-      const b = el('button', 'btn', 'Recortar silueta');
-      b.onclick = () => { const s = $('#cutMode'); s.value = 'silueta'; s.dispatchEvent(new Event('change')); };
-      w.appendChild(b); body.appendChild(w);
+      if (blankCanvas) body.appendChild(el('div', 'text-warn', 'Sin foto, el texto de abajo queda tapado por el fondo blanco. Pasalo arriba de la foto.'));
+      else {
+        const w = el('div', 'text-warn', 'Este texto queda tapado por la foto. Recortá la silueta para verlo detrás.');
+        const b = el('button', 'btn', 'Recortar silueta');
+        b.onclick = () => { const s = $('#cutMode'); s.value = 'silueta'; s.dispatchEvent(new Event('change')); };
+        w.appendChild(b); body.appendChild(w);
+      }
     }
     const proxy = { params: t };
     for (const prm of TEXT_PARAMS) {
@@ -3735,10 +3757,11 @@ function buildLetterBar() {
 }
 
 function drawTextOverlay() {
-  if (!srcFull) { textEdit.innerHTML = ''; return; }
+  if (!srcFull) { textEdit.innerHTML = ''; textEdit.style.pointerEvents = 'none'; return; }
   const W = srcFull.width, H = srcFull.height;
   const sw = stage.getBoundingClientRect().width || W;
   const k = W / sw; // píxeles de imagen por píxel de pantalla
+  textEdit.style.pointerEvents = state.texts.some(t => t.visible !== false) ? 'auto' : 'none';
   textEdit.setAttribute('viewBox', `0 0 ${W} ${H}`);
   textEdit.setAttribute('preserveAspectRatio', 'none');
   const t = selLayer();
