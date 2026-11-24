@@ -1,6 +1,6 @@
 # Pepper Print · Efectos
 
-**27 efectos de imagen para serigrafía, DTF, risografía y diseño gráfico — gratis, en el navegador y sin subir nada a internet.**
+**27 efectos de imagen y arte con texto para serigrafía, DTF, risografía y diseño gráfico — gratis, en el navegador y sin subir nada a internet.**
 
 ### ▶ [Abrir la web](https://pepperprint.github.io/pepper-efectos/)
 
@@ -17,6 +17,7 @@ Hecha por [Pepper Print](https://github.com/PepperPrint) para el trabajo diario 
 - **Efectos que se combinan como capas.** Apilás varios, los reordenás y cada uno tiene **modo de fusión** (los mismos 16 de Photoshop: Multiplicar, Trama, Superponer…) y **opacidad**.
 - **Listo para producción.** Exporta PNG a resolución completa, y con **Solo tinta** el fondo sale transparente — ideal para DTF y serigrafía.
 - **Recorte automático.** Al abrir una foto podés elegir *Recortar silueta* (quita el fondo y deja a la persona) o *Recortar cabeza*. Corre en tu navegador: la primera vez baja el modelo (~16 MB) y la foto no sale de tu computadora.
+- **Arte con texto.** Sumá frases arriba o abajo de tu foto, con una tipografía distinta en cada letra. Estirás, rotás o pasás a contorno cualquier letra tocándola.
 - **Vista antes / después** con un divisor que arrastrás sobre la imagen.
 
 ## Antes y después
@@ -45,6 +46,19 @@ Hecha por [Pepper Print](https://github.com/PepperPrint) para el trabajo diario 
 | **Grabado de líneas** | **Pantalla líquida** | **Bordado satén (parche)** |
 | **Posterizar** | **Mapa de degradado** — térmico, neón, duotono… | **Ajustes básicos** |
 
+## Arte con texto
+
+![Arte con texto](img/texto.png)
+
+Tocá **+ Agregar texto** (o **Empezar sin foto** para arrancar con un lienzo en blanco) y escribí tu frase.
+
+- **Arriba o abajo de la foto.** El texto puede ir encima de la imagen o detrás. Tip: con *Recortar silueta* la persona queda adelante y la frase gigante atrás, como en un póster.
+- **Le pegan los efectos.** Con la casilla prendida, el texto pasa por los efectos junto con la foto (como si se imprimiera todo junto). Apagada, queda limpio y nítido. Se elige en cada capa.
+- **Tipografías mezcladas.** Cada letra sale de una tipografía distinta según el reparto: *Parejo, Extremos, Tirando a pesado / liviano, Ola, Rampa fina → gruesa, Rampa por línea, Alternado* o *Una sola*. **Mezclar** la rearma al azar.
+- **Tocá una letra** y aparecen sus tiradores: ancho (las vecinas se corren para hacerle lugar), alto y rotación. Abajo tenés su tipografía, **Contorno** y **Reiniciar letra**; arriba a la derecha, su ficha.
+- **Arrastrá el texto** para moverlo. Mientras arrastrás se ve sin efectos; al soltar se aplican.
+- **SVG** exporta el texto limpio como contornos (una forma por letra), listo para Illustrator, plotter de vinilo o DTF. La parte con efectos va como imagen.
+
 ## Para DTF: adiós a las semitransparencias
 
 El DTF no imprime bien sombras suaves ni bordes difuminados: el blanco y el adhesivo no saben qué hacer con un píxel al 40 %. El efecto **Halftone** en modo **DTF** convierte todo lo semitransparente en puntos sólidos, conservando los colores del diseño.
@@ -60,7 +74,7 @@ También puede **quitar el color de la remera** (los píxeles parecidos al color
 
 ## Cómo se usa
 
-1. Abrí la [web](https://pepperprint.github.io/pepper-efectos/) (o descargá `index.html` y abrilo con doble clic).
+1. Abrí la [web](https://pepperprint.github.io/pepper-efectos/) (o descargá el repo y abrí `index.html` con doble clic).
 2. Arrastrá una imagen, pegala con **Ctrl/Cmd + V** o tocá **Abrir imagen**.
 3. Elegí un efecto en **Agregar efecto**. Se aplican de arriba hacia abajo.
 4. Ajustá los controles. Doble clic en un deslizador lo vuelve al valor original.
@@ -74,7 +88,9 @@ También puede **quitar el color de la remera** (los píxeles parecidos al color
 | Modo de fusión / Opacidad | Cómo se mezcla con lo que tiene arriba |
 | **Original** (mantener) | Muestra la imagen sin efectos |
 | **Antes / Después** o tecla **C** | Divisor para comparar |
-| **Guardar / Cargar** | Guarda tu combinación de efectos en un `.json` |
+| **Guardar / Cargar** | Guarda tus efectos y textos en un `.json` |
+| **SVG** | Exporta el arte con el texto limpio en contornos |
+| **Esc** | Deselecciona el texto |
 | **STOP** (dos toques) | Quita todos los efectos |
 
 **Combinaciones que funcionan bien**
@@ -84,10 +100,26 @@ También puede **quitar el color de la remera** (los píxeles parecidos al color
 
 ## Cómo funciona por dentro
 
-- Un solo `index.html` con HTML, CSS y JavaScript, **sin librerías**.
+- Un `index.html` con HTML, CSS y JavaScript. Para el texto suma `lib/opentype.js` (lee las tipografías) y `fonts/fonts.js` (las tipografías embebidas). No hace falta instalar nada.
+- Las letras se dibujan desde el contorno de cada tipografía, así la pantalla, el PNG y el SVG salen iguales.
 - La vista previa trabaja sobre una copia reducida de la imagen (máx. 1600 px) para que los controles respondan rápido; al exportar se procesa a **resolución completa**. Si querés ver el detalle exacto, activá *Vista previa a resolución completa*.
 - Cada efecto recibe los píxeles, los transforma y devuelve el resultado; el siguiente efecto trabaja sobre eso, mezclado con el modo de fusión elegido.
 - La última configuración queda guardada en tu navegador.
+
+## Sumar una tipografía
+
+Las tipografías están en `fonts/fonts.js`, generado por `tools/build-fonts.mjs` (las instrucciones están arriba de ese archivo). Tienen que ser de licencia libre; las licencias quedan en `fonts/licencias/`.
+
+Incluidas: Anton, Bebas Neue, Archivo Black, Archivo, Big Shoulders Display, Fraunces, Playfair Display, Instrument Serif, Space Grotesk, Syne, Unbounded, Rubik Mono One, Shrikhand, DM Serif Display, Climate Crisis e Inter — todas con licencia SIL Open Font License.
+
+## Pruebas
+
+```
+pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
+Abren la web en Chrome y prueban los efectos, las capas de texto, la edición de letras y la exportación.
 
 ## Sumar un efecto nuevo
 
