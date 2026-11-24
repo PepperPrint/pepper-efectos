@@ -106,6 +106,10 @@ input[type=checkbox]:checked{background:radial-gradient(circle at 35% 35%,#d6ffc
 select{width:100%;background:linear-gradient(180deg,var(--key),var(--key-lo));color:var(--key-text);border:none;border-radius:6px;padding:6px 8px;
   font:700 10.5px/1.2 "Helvetica Neue",Helvetica,Arial,sans-serif;letter-spacing:.04em;cursor:pointer;box-shadow:0 1px 0 #fff inset,0 2px 0 #1d252e,0 3px 5px #0006}
 select option{text-transform:none}
+.text-input{width:100%;min-height:52px;resize:vertical;border:none;border-radius:6px;padding:8px;font:700 14px/1.25 "Helvetica Neue",Helvetica,Arial,sans-serif;
+  background:#fbfaf6;color:#1d252e;box-shadow:inset 0 1px 3px #0005;box-sizing:border-box}
+.text-warn{font-size:10.5px;line-height:1.35;color:#f5c542;margin:8px 0 2px}
+.text-warn .btn{margin-top:6px}
 .btn{width:100%;background:linear-gradient(180deg,var(--key),var(--key-lo));color:var(--key-text);border:none;border-radius:7px;padding:8px 8px;
   font:700 10px/1.1 "Helvetica Neue",Helvetica,Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;
   box-shadow:0 1px 0 #fff inset,0 3px 0 #9d9c97,0 4px 6px #0004}
@@ -254,6 +258,12 @@ select option{text-transform:none}
           <option value="cabeza">Recortar cabeza</option>
         </select>
         <label class="check"><input type="checkbox" id="fullRes"> Vista previa a resolución completa</label>
+      </div>
+
+      <div class="section-title">Texto · capas</div>
+      <div id="textPanel"></div>
+      <div class="module">
+        <button class="btn" id="btnAddText" title="Sumar una capa de texto arriba o abajo de la foto">+ Agregar texto</button>
       </div>
 
       <div class="section-title">Efectos · de arriba a abajo</div>
@@ -3085,8 +3095,29 @@ function newStep(id, params) {
            params: Object.assign(defaultParams(def), params || {}) };
 }
 
+const TEXT_FIELDS = ['text', 'x', 'y', 'size', 'rotation', 'position', 'fx', 'color', 'align', 'reparto', 'face', 'seed', 'tracking', 'lineHeight', 'letters', 'open', 'visible'];
 function serialize() {
-  return { version: 1, pipeline: state.pipeline.map(s => ({ id: s.id, enabled: s.enabled, open: s.open, blend: s.blend, opacity: s.opacity, params: s.params })) };
+  return { version: 2,
+    pipeline: state.pipeline.map(s => ({ id: s.id, enabled: s.enabled, open: s.open, blend: s.blend, opacity: s.opacity, params: s.params })),
+    texts: (state.texts || []).map(t => Object.fromEntries(TEXT_FIELDS.map(k => [k, t[k]]))) };
+}
+function deserializeText(o) {
+  const t = newTextLayer();
+  for (const k of TEXT_FIELDS) if (o[k] !== undefined && typeof o[k] === typeof t[k]) t[k] = o[k];
+  if (!faceById(t.face)) t.face = FACES.length ? FACES[FACES.length - 1].id : null;
+  if (!['arriba', 'abajo'].includes(t.position)) t.position = 'arriba';
+  if (!REPARTOS.some(r => r[0] === t.reparto)) t.reparto = 'parejo';
+  const letters = {};
+  for (const [i, L] of Object.entries(t.letters || {})) {
+    if (!L || typeof L !== 'object') continue;
+    const c = {};
+    for (const k of ['sx', 'sy', 'rot']) if (typeof L[k] === 'number' && isFinite(L[k])) c[k] = L[k];
+    if (L.outline) c.outline = true;
+    if (faceById(L.face)) c.face = L.face;
+    letters[i] = c;
+  }
+  t.letters = letters;
+  return t;
 }
 function deserialize(obj) {
   if (!obj || !Array.isArray(obj.pipeline)) return false;
@@ -3098,6 +3129,7 @@ function deserialize(obj) {
     return st;
   });
   state.pipeline = steps;
+  state.texts = FACES.length && Array.isArray(obj.texts) ? obj.texts.filter(o => o && typeof o === 'object').map(deserializeText) : [];
   return true;
 }
 function save() {
@@ -3353,6 +3385,7 @@ function setSource(bmp) {
   stage.style.display = '';
   $('#btnExport').disabled = $('#btnExportInk').disabled = false;
   render();
+  buildTextPanel(); // el aviso de "texto tapado" depende de la transparencia de la foto
 }
 
 /* ---------- Recorte automático (silueta o cabeza) ----------
@@ -3493,10 +3526,88 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('resize', () => { if (state.zoom === 'fit') layout(); });
 
+/* ---------- Panel de texto ---------- */
+const TEXT_PARAMS = [
+  { key: 'position', label: 'Capa', type: 'select', options: [['arriba', 'Arriba de la foto'], ['abajo', 'Abajo de la foto']] },
+  { key: 'fx', label: 'Le pegan los efectos', type: 'checkbox' },
+  { key: 'color', label: 'Color', type: 'color' },
+  { key: 'reparto', label: 'Tipografías', type: 'select', options: REPARTOS },
+  { key: 'face', label: 'Tipografía', type: 'select', showIf: t => t.reparto === 'una', options: () => FACES.map(f => [f.id, `${f.family} ${f.weight}`]) },
+  { key: 'size', label: 'Tamaño', type: 'range', min: 0.02, max: 0.6, step: 0.01, default: 0.12 },
+  { key: 'tracking', label: 'Interletrado', type: 'range', min: -0.2, max: 0.5, step: 0.01, unit: ' em', default: 0 },
+  { key: 'lineHeight', label: 'Interlineado', type: 'range', min: 0.6, max: 2, step: 0.01, default: 1 },
+  { key: 'rotation', label: 'Rotación', type: 'range', min: -180, max: 180, step: 1, unit: '°', default: 0 },
+  { key: 'align', label: 'Alineación', type: 'select', options: [['left', 'Izquierda'], ['center', 'Centro'], ['right', 'Derecha']] },
+];
+function textTitle(t) { return (t.text || '').split('\n')[0].trim().slice(0, 22) || 'Texto'; }
+function textTag(t) { return (t.position === 'abajo' ? 'ABAJO' : 'ARRIBA') + (t.fx ? ' · FX' : ''); }
+function mezclar(layer) {
+  layer.seed = Math.floor(Math.random() * 1e9);
+  for (const L of Object.values(layer.letters)) delete L.face;
+}
+function buildTextPanel() {
+  const list = $('#textPanel');
+  list.innerHTML = '';
+  if (textoError) { list.appendChild(el('p', 'desc', 'No se pudieron cargar las tipografías.')); $('#btnAddText').disabled = true; return; }
+  const T = state.texts;
+  T.forEach((t, idx) => {
+    const card = el('div', 'card' + (t.visible !== false ? '' : ' off') + (t.open ? ' open' : ''));
+    const head = el('div', 'card-head');
+    const chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.checked = t.visible !== false; chk.title = 'Mostrar / ocultar';
+    chk.onclick = e => e.stopPropagation();
+    chk.onchange = () => { t.visible = chk.checked; card.classList.toggle('off', !t.visible); changed(); };
+    const name = el('span', 'name', textTitle(t));
+    const tag = el('span', 'mode-tag', textTag(t));
+    const mv = d => { const j = idx + d; if (j < 0 || j >= T.length) return; [T[idx], T[j]] = [T[j], T[idx]]; buildTextPanel(); changed(); };
+    head.append(chk, name, tag,
+      iconBtn('↑', 'Subir', () => mv(-1)), iconBtn('↓', 'Bajar', () => mv(1)),
+      iconBtn('✕', 'Quitar', () => { T.splice(idx, 1); if (state.selectedText === t.uid) state.selectedText = null; buildTextPanel(); changed(); }));
+    head.onclick = () => { t.open = !t.open; card.classList.toggle('open', t.open); save(); };
+    const body = el('div', 'card-body');
+    const ta = document.createElement('textarea');
+    ta.className = 'text-input'; ta.value = t.text; ta.rows = 2; ta.spellcheck = false;
+    ta.oninput = () => { t.text = ta.value; name.textContent = textTitle(t); changed(); };
+    body.appendChild(ta);
+    if (t.position === 'abajo' && needsCutoutWarning()) {
+      const w = el('div', 'text-warn', 'Este texto queda tapado por la foto. Recortá la silueta para verlo detrás.');
+      const b = el('button', 'btn', 'Recortar silueta');
+      b.onclick = () => { const s = $('#cutMode'); s.value = 'silueta'; s.dispatchEvent(new Event('change')); };
+      w.appendChild(b); body.appendChild(w);
+    }
+    const proxy = { params: t };
+    for (const prm of TEXT_PARAMS) {
+      if (prm.showIf && !prm.showIf(t)) continue;
+      const def = Object.assign({}, prm, typeof prm.options === 'function' ? { options: prm.options() } : {});
+      const ctrl = makeControl(proxy, def);
+      if (prm.type === 'select' || prm.type === 'checkbox') {
+        ctrl.addEventListener('change', () => { tag.textContent = textTag(t); buildTextPanel(); }, true);
+      }
+      body.appendChild(ctrl);
+    }
+    const row = el('div', 'row'); row.style.marginTop = '8px';
+    const mz = el('button', 'btn btn-mezclar', '⟳ Mezclar');
+    mz.title = 'Rearmar la mezcla de tipografías al azar';
+    mz.onclick = () => { mezclar(t); changed(); };
+    row.appendChild(mz); body.appendChild(row);
+    card.append(head, body);
+    list.appendChild(card);
+  });
+}
+$('#btnAddText').onclick = () => {
+  if (!srcFull) startBlankCanvas();
+  state.texts.forEach(o => { o.open = false; });
+  const t = newTextLayer();
+  state.texts.push(t);
+  state.selectedText = t.uid;
+  buildTextPanel(); changed();
+};
+
 /* ---------- Inicio ---------- */
 restore();
 fillAddSelect();
 buildPanel();
+buildTextPanel();
 </script>
 </body>
 </html>
