@@ -2806,6 +2806,130 @@ let textoError = null;
 try { loadFaces(); window.__textoReady = true; }
 catch (e) { textoError = e; window.__textoReady = 'error'; console.warn('Texto desactivado:', e); }
 
+const REPARTOS = [['una','Una sola'],['parejo','Parejo'],['extremos','Extremos (fina ↔ gruesa)'],['pesado','Tirando a pesado'],['liviano','Tirando a liviano'],['ola','Ola'],['rampa','Rampa fina → gruesa'],['rampa-linea','Rampa por línea'],['alternado','Alternado fina / gruesa']];
+
+let textUid = 1;
+function newTextLayer(opts) {
+  return Object.assign({
+    uid: textUid++, text: 'HACELO TUYO', x: 0.5, y: 0.5, size: 0.12, rotation: 0,
+    position: 'arriba', fx: false, color: '#e8352b', align: 'center', reparto: 'parejo',
+    face: FACES.length ? FACES[FACES.length - 1].id : null,
+    seed: Math.floor(Math.random() * 1e9), tracking: 0, lineHeight: 1.0, letters: {}, open: true,
+  }, opts || {});
+}
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const isBlank = ch => ch === ' ' || ch === '\n' || ch === '\t';
+
+// Un id de tipografía por carácter de layer.text (null para espacios y caracteres que ninguna tiene).
+function assignFaces(layer) {
+  const chars = Array.from(layer.text || '');
+  const n = FACES.length;
+  const rand = mulberry32(layer.seed >>> 0);
+  const at = t => FACES[Math.max(0, Math.min(n - 1, Math.round(t * (n - 1))))];
+  const lines = []; { let cur = []; chars.forEach((ch, i) => { if (ch === '\n') { lines.push(cur); cur = []; } else if (!isBlank(ch)) cur.push(i); }); lines.push(cur); }
+  const lineOf = {}, posInLine = {};
+  lines.forEach(l => l.forEach((i, p) => { lineOf[i] = l; posInLine[i] = p; }));
+  const N = chars.filter(ch => !isBlank(ch)).length;
+  const half = Math.floor(n / 2), third = Math.max(1, Math.floor(n / 3));
+  let k = 0;
+  return chars.map((ch, i) => {
+    if (isBlank(ch)) return null;
+    let face;
+    const r = rand();
+    switch (layer.reparto) {
+      case 'una': face = faceById(layer.face) || FACES[n - 1]; break;
+      case 'extremos': face = r < 0.5 ? FACES[Math.floor(rand() * third)] : FACES[n - 1 - Math.floor(rand() * third)]; break;
+      case 'pesado': face = at(1 - r * r); break;
+      case 'liviano': face = at(r * r); break;
+      case 'ola': face = at((Math.sin(2 * Math.PI * k / 6) + 1) / 2); break;
+      case 'rampa': face = at(N > 1 ? k / (N - 1) : 0); break;
+      case 'rampa-linea': { const L = lineOf[i].length; face = at(L > 1 ? posInLine[i] / (L - 1) : 0); break; }
+      case 'alternado': face = k % 2 === 0 ? FACES[Math.floor(r * half)] : FACES[half + Math.floor(r * (n - half))]; break;
+      default: face = at(r);
+    }
+    k++;
+    const own = layer.letters && layer.letters[i] && faceById(layer.letters[i].face);
+    if (own) face = own;
+    if (!faceHasGlyph(face, ch)) {
+      face = FACES.filter(f => faceHasGlyph(f, ch))
+        .sort((a, b) => Math.abs(a.heaviness - face.heaviness) - Math.abs(b.heaviness - face.heaviness))[0];
+    }
+    return face ? face.id : null;
+  });
+}
+
+function transformPath(path, fn) {
+  for (const c of path.commands) {
+    if ('x' in c) [c.x, c.y] = fn(c.x, c.y);
+    if ('x1' in c) [c.x1, c.y1] = fn(c.x1, c.y1);
+    if ('x2' in c) [c.x2, c.y2] = fn(c.x2, c.y2);
+  }
+  return path;
+}
+const rotAround = (cx, cy, deg) => {
+  const a = deg * Math.PI / 180, co = Math.cos(a), si = Math.sin(a);
+  return (x, y) => [cx + (x - cx) * co - (y - cy) * si, cy + (x - cx) * si + (y - cy) * co];
+};
+
+// Maqueta la capa en un lienzo de W×H px. Devuelve glifos con su contorno ya ubicado.
+function layoutText(layer, W, H) {
+  const chars = Array.from(layer.text || '');
+  const ids = assignFaces(layer);
+  const S = layer.size * H;
+  const spaceFace = faceById(layer.face) || FACES[0];
+  const items = chars.map((ch, i) => {
+    const L = (layer.letters && layer.letters[i]) || {};
+    const sx = L.sx || 1, sy = L.sy || 1;
+    if (ch === '\n') return { ch, br: true };
+    if (isBlank(ch)) return { ch, i, space: true, adv: spaceFace.font.getAdvanceWidth(' ', S) + layer.tracking * S };
+    if (!ids[i]) return null;
+    const face = faceById(ids[i]);
+    const adv = face.font.getAdvanceWidth(ch, S) * sx;
+    return { ch, i, face, adv, sx, sy, rot: L.rot || 0, outline: !!L.outline, step: adv + layer.tracking * S };
+  }).filter(Boolean);
+  const lines = [[]];
+  items.forEach(it => it.br ? lines.push([]) : lines[lines.length - 1].push(it));
+  const info = lines.map(l => {
+    const w = l.reduce((a, it) => a + (it.space ? it.adv : it.step), 0);
+    const maxSy = Math.max(1, ...l.filter(it => !it.space).map(it => it.sy));
+    return { l, w, h: layer.lineHeight * S * maxSy, maxSy };
+  });
+  const maxW = Math.max(0, ...info.map(o => o.w));
+  const totalH = info.reduce((a, o) => a + o.h, 0);
+  const cx = layer.x * W, cy = layer.y * H;
+  const blockRot = rotAround(cx, cy, layer.rotation || 0);
+  let top = cy - totalH / 2;
+  const glyphs = [];
+  for (const o of info) {
+    let x = layer.align === 'left' ? cx - maxW / 2 : layer.align === 'right' ? cx + maxW / 2 - o.w : cx - o.w / 2;
+    const base = top + o.h * 0.8;
+    for (const it of o.l) {
+      if (it.space) { x += it.adv; continue; }
+      const lx = x, ccx = lx + it.adv / 2, ccy = base - S * 0.35 * it.sy;
+      const letterRot = rotAround(ccx, ccy, it.rot);
+      const path = transformPath(it.face.font.getPath(it.ch, 0, 0, S), (px, py) => {
+        let X = lx + px * it.sx, Y = base + py * it.sy;
+        [X, Y] = letterRot(X, Y);
+        return blockRot(X, Y);
+      });
+      glyphs.push({ i: it.i, ch: it.ch, faceId: it.face.id, x: lx, y: base, adv: it.adv, size: S,
+        sx: it.sx, sy: it.sy, rot: it.rot, outline: it.outline, path,
+        rect: { x: lx, y: base - S * 0.8 * it.sy, w: it.adv, h: S * it.sy } });
+      x += it.step;
+    }
+    top += o.h;
+  }
+  return { glyphs, box: { x: cx - maxW / 2, y: cy - totalH / 2, w: maxW, h: totalH, cx, cy, rotation: layer.rotation || 0 } };
+}
+
 /* =====================================================================
    MODOS DE FUSIÓN (como Photoshop) — se aplican a cada efecto sobre lo anterior
    ===================================================================== */
