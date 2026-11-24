@@ -3048,6 +3048,7 @@ function render() {
     setStatus(`${srcFull.width}×${srcFull.height}px` + (scale < 1 ? ' · vista previa reducida' : ' · resolución completa'));
     setSeg(ms, 'MS');
     layout();
+    window.__renderSeq = (window.__renderSeq || 0) + 1; // contador de renders (lo usan las pruebas)
   });
 }
 
