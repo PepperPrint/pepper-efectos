@@ -124,7 +124,7 @@ select option{text-transform:none}
 
 /* ---------- pie: teclas grandes ---------- */
 .side-foot{padding:10px 14px 16px;border-top:1px solid #c9c8c3;box-shadow:inset 0 1px 0 #fff}
-.keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;align-items:end}
+.keys{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;align-items:end}
 .key-wrap{display:flex;flex-direction:column;align-items:center;gap:5px}
 .key-cap{font-size:8.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4d5259;display:flex;align-items:center;gap:4px}
 .key-cap .dot{width:6px;height:6px;border-radius:50%;background:var(--info)}
@@ -291,6 +291,7 @@ select option{text-transform:none}
         <div class="key-wrap"><span class="key-cap"><span class="dot"></span>Cargar</span><button class="pill" id="btnLoadPreset" title="Cargar ajustes (.json)"></button></div>
         <div class="key-wrap"><span class="key-cap">Original</span><button class="pill" id="btnHold" title="Mantené apretado para ver la imagen original"></button></div>
         <div class="key-wrap"><span class="key-cap">Solo tinta</span><button class="pill amber" id="btnExportInk" disabled title="Exportar PNG con el papel transparente (solo la tinta)"></button></div>
+        <div class="key-wrap"><span class="key-cap">SVG</span><button class="pill" id="btnExportSVG" disabled title="Exportar SVG: el texto limpio sale en contornos para Illustrator, vinilo o DTF"></button></div>
       </div>
       <div class="big-keys">
         <div class="key-wrap"><span class="key-cap" style="flex-direction:column;align-items:flex-end;text-align:right"><span>Start</span><span>Exportar PNG</span></span><button class="round start" id="btnExport" disabled title="Exportar PNG a resolución completa"><span class="ring"></span></button></div>
@@ -2989,7 +2990,7 @@ function renderComposition(src, scale, opts) {
     G.aboveFx.forEach(t => drawTextLayer(c, t, W, H));
   }
   const img = runPipeline(pre, scale, Object.assign({}, opts, { transparentPaper: !!opts.transparentPaper || G.belowClean.length > 0 }));
-  if (!G.belowClean.length && !G.aboveClean.length) return img;
+  if (opts.onlyEffects || (!G.belowClean.length && !G.aboveClean.length)) return img;
   const mid = newCanvas(img.width, img.height);
   mid.getContext('2d').putImageData(img, 0, 0);
   const fin = newCanvas(img.width, img.height);
@@ -3396,7 +3397,7 @@ function setSource(bmp) {
   pc.drawImage(bmp, 0, 0, srcPreview.width, srcPreview.height);
   $('#empty').style.display = 'none';
   stage.style.display = '';
-  $('#btnExport').disabled = $('#btnExportInk').disabled = false;
+  $('#btnExport').disabled = $('#btnExportInk').disabled = $('#btnExportSVG').disabled = false;
   render();
   buildTextPanel(); // el aviso de "texto tapado" depende de la transparencia de la foto
 }
@@ -3511,6 +3512,38 @@ function exportPNG(transparent) {
   }, 30);
 }
 $('#btnExport').onclick = () => exportPNG(false);
+
+// SVG: la parte con efectos va como imagen; el texto limpio va como contornos (un trazado por letra).
+function svgEsc(v) { return String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]); }
+function svgTextGroup(t, W, H) {
+  const id = 'texto-' + (t.text || '').replace(/\s+/g, '-').replace(/[^\wñáéíóúü-]/gi, '').slice(0, 30).toLowerCase();
+  const paths = layoutText(t, W, H).glyphs.map(g => g.outline
+    ? `<path d="${g.path.toPathData(2)}" fill="none" stroke="${svgEsc(t.color)}" stroke-width="${(Math.max(1, g.size * 0.03)).toFixed(2)}" stroke-linejoin="round"/>`
+    : `<path d="${g.path.toPathData(2)}" fill="${svgEsc(t.color)}"/>`).join('\n    ');
+  return `  <g id="${svgEsc(id)}" data-texto="${svgEsc(t.text)}">\n    ${paths}\n  </g>`;
+}
+function buildSVG() {
+  const W = srcFull.width, H = srcFull.height, G = textGroups();
+  const img = renderComposition(srcFull, 1, { onlyEffects: true });
+  const c = newCanvas(img.width, img.height);
+  c.getContext('2d').putImageData(img, 0, 0);
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`];
+  if (G.belowClean.length) parts.push(`  <rect width="${W}" height="${H}" fill="#ffffff"/>`);
+  parts.push(`<g id="texto-abajo">`, ...G.belowClean.map(t => svgTextGroup(t, W, H)), `</g>`);
+  parts.push(`  <image id="imagen-con-efectos" width="${W}" height="${H}" href="${c.toDataURL('image/png')}"/>`);
+  parts.push(`<g id="texto-arriba">`, ...G.aboveClean.map(t => svgTextGroup(t, W, H)), `</g>`);
+  parts.push('</svg>');
+  return parts.join('\n');
+}
+function exportSVG() {
+  if (!srcFull) return;
+  setStatus('Exportando SVG…');
+  setTimeout(() => {
+    try { download(new Blob([buildSVG()], { type: 'image/svg+xml' }), `${fileBase}-arte.svg`); setStatus('SVG exportado ✓'); }
+    catch (e) { console.error(e); setStatus('Error al exportar: ' + e.message); }
+  }, 30);
+}
+$('#btnExportSVG').onclick = () => exportSVG();
 $('#btnBlank').onclick = () => startBlankCanvas();
 $('#btnExportInk').onclick = () => exportPNG(true);
 
