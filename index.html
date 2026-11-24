@@ -180,6 +180,15 @@ select option{text-transform:none}
 .tag{position:absolute;top:8px;padding:3px 6px;font:700 10px/1 "Courier New",monospace;border-radius:3px;background:var(--lcd);color:var(--lcd-text);display:none;pointer-events:none}
 .stage.compare .tag{display:block}
 .tag.l{left:8px}.tag.r{right:8px}
+#textEdit{position:absolute;inset:0;width:100%;height:100%;touch-action:none;overflow:visible}
+#textEdit .hit{cursor:move}
+#letterInfo{position:absolute;top:10px;right:10px;display:none;pointer-events:none;background:var(--lcd);color:var(--lcd-text);
+  font:11px/1.45 "Courier New",monospace;border-radius:5px;padding:7px 10px;box-shadow:inset 0 0 0 2px #0002,0 4px 14px #0006;white-space:nowrap}
+#letterInfo b{font-weight:700}
+#letterBar{position:absolute;display:none;gap:6px;align-items:center;background:var(--slate);border-radius:8px;padding:6px;box-shadow:0 6px 18px #0008;z-index:2;white-space:nowrap}
+#letterBar select{width:auto;max-width:170px}
+#letterBar .btn{width:auto;padding:7px 9px}
+.stage.compare #textEdit,.stage.hold #textEdit,.stage.compare #letterBar,.stage.hold #letterBar,.stage.compare #letterInfo,.stage.hold #letterInfo{display:none!important}
 .empty{margin:auto;text-align:center;color:var(--label-dim);border:2px dashed var(--slate-line);border-radius:14px;padding:46px 54px;cursor:pointer;background:#1d232a;
   font-size:11px;letter-spacing:.06em}
 .empty strong{display:block;color:var(--label);font-size:13px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
@@ -323,6 +332,9 @@ select option{text-transform:none}
           <canvas id="out"></canvas>
           <canvas id="orig"></canvas>
           <div class="handle" id="handle"></div>
+          <svg id="textEdit" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div id="letterInfo"></div>
+          <div id="letterBar"></div>
           <span class="tag l">ANTES</span><span class="tag r">DESPUÉS</span>
         </div>
       </div>
@@ -3337,6 +3349,7 @@ function layout() {
   const ir = pxRatio >= 1.5 ? 'pixelated' : 'auto';
   out.style.imageRendering = orig.style.imageRendering = ir;
   updateCompare();
+  drawTextOverlay();
 }
 
 function updateCompare() {
@@ -3562,12 +3575,12 @@ function buildTextPanel() {
     const mv = d => { const j = idx + d; if (j < 0 || j >= T.length) return; [T[idx], T[j]] = [T[j], T[idx]]; buildTextPanel(); changed(); };
     head.append(chk, name, tag,
       iconBtn('↑', 'Subir', () => mv(-1)), iconBtn('↓', 'Bajar', () => mv(1)),
-      iconBtn('✕', 'Quitar', () => { T.splice(idx, 1); if (state.selectedText === t.uid) state.selectedText = null; buildTextPanel(); changed(); }));
+      iconBtn('✕', 'Quitar', () => { T.splice(idx, 1); if (state.selectedText === t.uid) { state.selectedText = null; state.selectedLetter = null; buildLetterBar(); } buildTextPanel(); changed(); }));
     head.onclick = () => { t.open = !t.open; card.classList.toggle('open', t.open); save(); };
     const body = el('div', 'card-body');
     const ta = document.createElement('textarea');
     ta.className = 'text-input'; ta.value = t.text; ta.rows = 2; ta.spellcheck = false;
-    ta.oninput = () => { t.text = ta.value; name.textContent = textTitle(t); changed(); };
+    ta.oninput = () => { t.text = ta.value; name.textContent = textTitle(t); if (state.selectedLetter && state.selectedLetter.uid === t.uid) { state.selectedLetter = null; buildLetterBar(); } changed(); };
     body.appendChild(ta);
     if (t.position === 'abajo' && needsCutoutWarning()) {
       const w = el('div', 'text-warn', 'Este texto queda tapado por la foto. Recortá la silueta para verlo detrás.');
@@ -3599,9 +3612,203 @@ $('#btnAddText').onclick = () => {
   state.texts.forEach(o => { o.open = false; });
   const t = newTextLayer();
   state.texts.push(t);
-  state.selectedText = t.uid;
-  buildTextPanel(); changed();
+  state.selectedText = t.uid; state.selectedLetter = null;
+  buildTextPanel(); buildLetterBar(); changed();
 };
+
+/* ---------- Edición directa sobre la imagen ----------
+   Tocá una letra para elegirla: tiradores de ancho, alto y rotación, barra con tipografía,
+   contorno y reiniciar. Arrastrá el texto para moverlo. Mientras arrastrás se muestra sin efectos. */
+const textEdit = $('#textEdit'), letterInfo = $('#letterInfo'), letterBar = $('#letterBar');
+state.selectedText = state.selectedText || null;
+state.selectedLetter = null;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function selLayer() { return state.texts.find(t => t.uid === state.selectedText) || null; }
+function imgPoint(e) {
+  const r = stage.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width * srcFull.width, (e.clientY - r.top) / r.height * srcFull.height];
+}
+function letterCenter(g) { return [g.rect.x + g.rect.w / 2, g.y - g.size * 0.35 * g.sy]; }
+function inRect(p, r) { return p[0] >= r.x && p[0] <= r.x + r.w && p[1] >= r.y && p[1] <= r.y + r.h; }
+
+function hitTest(px, py) {
+  if (!srcFull) return null;
+  const W = srcFull.width, H = srcFull.height;
+  const order = [...state.texts.filter(t => t.position === 'arriba'), ...state.texts.filter(t => t.position !== 'arriba')]
+    .filter(t => t.visible !== false);
+  const ups = order.filter(t => t.position === 'arriba').reverse(), downs = order.filter(t => t.position !== 'arriba').reverse();
+  for (const t of [...ups, ...downs]) {
+    const { glyphs, box } = layoutText(t, W, H);
+    const p = rotAround(box.cx, box.cy, -box.rotation)(px, py);
+    for (let k = glyphs.length - 1; k >= 0; k--) {
+      const g = glyphs[k], c = letterCenter(g);
+      if (inRect(rotAround(c[0], c[1], -g.rot)(p[0], p[1]), g.rect)) return { uid: t.uid, i: g.i };
+    }
+    const pad = t.size * H * 0.1;
+    if (inRect(p, { x: box.x - pad, y: box.y - pad, w: box.w + 2 * pad, h: box.h + 2 * pad })) return { uid: t.uid, i: null };
+  }
+  return null;
+}
+
+function selectText(t, i) {
+  state.selectedText = t ? t.uid : null;
+  state.selectedLetter = t && i != null ? { uid: t.uid, i } : null;
+  if (t && !t.open) { state.texts.forEach(o => { o.open = o === t; }); buildTextPanel(); }
+  buildLetterBar();
+  drawTextOverlay();
+}
+function selectedGlyph(t) {
+  if (!t || !state.selectedLetter || state.selectedLetter.uid !== t.uid) return null;
+  return layoutText(t, srcFull.width, srcFull.height).glyphs.find(g => g.i === state.selectedLetter.i) || null;
+}
+
+function showInfo(t, g) {
+  if (!t || !g) { letterInfo.style.display = 'none'; return; }
+  const f = faceById(g.faceId);
+  letterInfo.innerHTML = `<b>${f.family} · ${f.weight}</b><br>letra «${g.ch}» · ${Math.round(g.size)} px<br>` +
+    `ancho ×${g.sx.toFixed(2)} · alto ×${g.sy.toFixed(2)}<br>rotación ${Math.round(g.rot)}° · interletrado ${t.tracking.toFixed(2)}`;
+  letterInfo.style.display = 'block';
+}
+
+function buildLetterBar() {
+  letterBar.innerHTML = '';
+  const t = selLayer(), sel = state.selectedLetter;
+  if (!t || !sel) { letterBar.style.display = 'none'; return; }
+  const L = () => (t.letters[sel.i] ||= {});
+  const ids = assignFaces(t);
+  const ch = Array.from(t.text)[sel.i];
+  const s = document.createElement('select');
+  s.title = 'Tipografía de esta letra';
+  FACES.filter(f => faceHasGlyph(f, ch)).forEach(f => { const o = document.createElement('option'); o.value = f.id; o.textContent = `${f.family} ${f.weight}`; s.appendChild(o); });
+  s.value = ids[sel.i];
+  s.onchange = () => { L().face = s.value; changed(); };
+  const ol = el('button', 'btn toggle btn-contorno', 'Contorno');
+  ol.classList.toggle('on', !!(t.letters[sel.i] && t.letters[sel.i].outline));
+  ol.onclick = () => { L().outline = !L().outline; ol.classList.toggle('on', L().outline); changed(); };
+  const rs = el('button', 'btn btn-reiniciar', 'Reiniciar letra');
+  rs.onclick = () => { delete t.letters[sel.i]; buildLetterBar(); changed(); };
+  letterBar.append(s, ol, rs);
+}
+
+function drawTextOverlay() {
+  if (!srcFull) { textEdit.innerHTML = ''; return; }
+  const W = srcFull.width, H = srcFull.height;
+  const sw = stage.getBoundingClientRect().width || W;
+  const k = W / sw; // píxeles de imagen por píxel de pantalla
+  textEdit.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  textEdit.setAttribute('preserveAspectRatio', 'none');
+  const t = selLayer();
+  let html = '';
+  letterBar.style.display = 'none';
+  if (t && t.visible !== false && Array.from(t.text).length) {
+    const { box: B } = layoutText(t, W, H);
+    const pad = t.size * H * 0.08;
+    html += `<g transform="rotate(${B.rotation} ${B.cx} ${B.cy})">` +
+      `<rect x="${B.x - pad}" y="${B.y - pad}" width="${B.w + 2 * pad}" height="${B.h + 2 * pad}" fill="none" stroke="#0008" stroke-width="${3 * k}"/>` +
+      `<rect x="${B.x - pad}" y="${B.y - pad}" width="${B.w + 2 * pad}" height="${B.h + 2 * pad}" fill="none" stroke="#fff" stroke-width="${1.5 * k}" stroke-dasharray="${6 * k} ${4 * k}"/>`;
+    const g = selectedGlyph(t);
+    if (g) {
+      const [cx, cy] = letterCenter(g), r = g.rect, hs = 12 * k, hit = 30 * k;
+      const handleAt = (name, x, y, round) =>
+        `<rect data-h="${name}" x="${x - hit / 2}" y="${y - hit / 2}" width="${hit}" height="${hit}" fill="transparent" style="cursor:${name === 'w' ? 'ew-resize' : name === 'h' ? 'ns-resize' : 'grab'}"/>` +
+        `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${round ? hs / 2 : 3 * k}" fill="#fff" stroke="#2f9bff" stroke-width="${2 * k}" pointer-events="none"/>`;
+      html += `<g transform="rotate(${g.rot} ${cx} ${cy})">` +
+        `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="#2f9bff18" stroke="#2f9bff" stroke-width="${2 * k}" pointer-events="none"/>` +
+        `<line x1="${cx}" y1="${r.y}" x2="${cx}" y2="${r.y - 28 * k}" stroke="#2f9bff" stroke-width="${2 * k}" pointer-events="none"/>` +
+        handleAt('w', r.x + r.w, cy) + handleAt('h', cx, r.y) + handleAt('r', cx, r.y - 34 * k, true) + `</g>`;
+      // barra de la letra, debajo de la letra (en pantalla)
+      const bottom = rotAround(B.cx, B.cy, B.rotation)(...rotAround(cx, cy, g.rot)(cx, r.y + r.h));
+      if (!letterBar.childElementCount) buildLetterBar();
+      letterBar.style.display = 'flex';
+      const bw = letterBar.offsetWidth, sh = stage.getBoundingClientRect().height;
+      letterBar.style.left = clamp(bottom[0] / k - bw / 2, 4, Math.max(4, sw - bw - 4)) + 'px';
+      letterBar.style.top = clamp(bottom[1] / k + 14, 4, Math.max(4, sh - letterBar.offsetHeight - 4)) + 'px';
+      showInfo(t, g);
+    } else showInfo(null);
+    html += `</g>`;
+  } else showInfo(null);
+  textEdit.innerHTML = html;
+}
+
+let editDrag = null, dragCache = null;
+function dragPreview(t) {
+  const src = state.fullRes ? srcFull : srcPreview, scale = src.width / srcFull.width;
+  if (!dragCache) {
+    const img = renderComposition(src, scale, { exclude: t });
+    dragCache = newCanvas(img.width, img.height);
+    dragCache.getContext('2d').putImageData(img, 0, 0);
+  }
+  const c = out.getContext('2d');
+  c.clearRect(0, 0, out.width, out.height);
+  c.drawImage(dragCache, 0, 0);
+  drawTextLayer(c, t, out.width, out.height);
+  drawTextOverlay();
+}
+textEdit.addEventListener('pointerdown', e => {
+  if (!srcFull || state.compare) return;
+  e.preventDefault();
+  const p = imgPoint(e), W = srcFull.width, H = srcFull.height;
+  const h = e.target.closest && e.target.closest('[data-h]') ? e.target.closest('[data-h]').dataset.h : null;
+  const t = selLayer();
+  if (h && t && state.selectedLetter) {
+    const i = state.selectedLetter.i, L = t.letters[i] || {};
+    const g = selectedGlyph(t);
+    if (!g) return;
+    editDrag = { type: h, t, i, p0: p, sx: L.sx || 1, sy: L.sy || 1, rot: L.rot || 0, g, box: layoutText(t, W, H).box, moved: false };
+  } else {
+    const hit = hitTest(p[0], p[1]);
+    if (!hit) { selectText(null, null); return; }
+    const t2 = state.texts.find(o => o.uid === hit.uid);
+    selectText(t2, hit.i);
+    editDrag = { type: 'move', t: t2, p0: p, x: t2.x, y: t2.y, moved: false };
+  }
+  try { textEdit.setPointerCapture(e.pointerId); } catch (err) {}
+});
+textEdit.addEventListener('pointermove', e => {
+  if (!srcFull) return;
+  const p = imgPoint(e);
+  if (!editDrag) {
+    if (e.pointerType !== 'mouse') return;
+    const hit = hitTest(p[0], p[1]);
+    textEdit.style.cursor = hit ? 'move' : 'default';
+    const t = hit ? state.texts.find(o => o.uid === hit.uid) : selLayer();
+    const i = hit && hit.i != null ? hit.i : (state.selectedLetter && t && state.selectedLetter.uid === t.uid ? state.selectedLetter.i : null);
+    showInfo(t, t && i != null ? layoutText(t, srcFull.width, srcFull.height).glyphs.find(g => g.i === i) : null);
+    return;
+  }
+  const W = srcFull.width, H = srcFull.height, k = W / stage.getBoundingClientRect().width;
+  const d = editDrag, dx = p[0] - d.p0[0], dy = p[1] - d.p0[1];
+  if (!d.moved && Math.hypot(dx, dy) < 3 * k) return;
+  d.moved = true;
+  const t = d.t;
+  if (d.type === 'move') { t.x = d.x + dx / W; t.y = d.y + dy / H; }
+  else {
+    const L = (t.letters[d.i] ||= {});
+    const a = (d.box.rotation + d.rot) * Math.PI / 180;
+    const lx = dx * Math.cos(a) + dy * Math.sin(a), ly = -dx * Math.sin(a) + dy * Math.cos(a);
+    if (d.type === 'w') L.sx = clamp(d.sx * (d.g.adv + lx) / d.g.adv, 0.3, 5);
+    else if (d.type === 'h') L.sy = clamp(d.sy * (d.g.rect.h - ly) / d.g.rect.h, 0.3, 5);
+    else {
+      const c = rotAround(d.box.cx, d.box.cy, d.box.rotation)(...letterCenter(d.g));
+      let r = d.rot + (Math.atan2(p[1] - c[1], p[0] - c[0]) - Math.atan2(d.p0[1] - c[1], d.p0[0] - c[0])) * 180 / Math.PI;
+      r = ((r + 540) % 360) - 180;
+      L.rot = Math.abs(r) < 3 ? 0 : r;
+    }
+  }
+  dragPreview(t);
+});
+function endEditDrag() {
+  if (!editDrag) return;
+  const moved = editDrag.moved;
+  editDrag = null; dragCache = null;
+  if (moved) changed();
+}
+textEdit.addEventListener('pointerup', endEditDrag);
+textEdit.addEventListener('pointercancel', endEditDrag);
+textEdit.addEventListener('pointerleave', e => { if (!editDrag && e.pointerType === 'mouse') showInfo(null); });
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !e.target.matches('input, select, textarea')) selectText(null, null);
+});
 
 /* ---------- Inicio ---------- */
 restore();
