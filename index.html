@@ -246,6 +246,7 @@ select option{text-transform:none}
       <div class="module">
         <div class="mod-label">Original</div>
         <button class="btn" id="btnOpen">Abrir imagen</button>
+        <button class="btn" id="btnBlank" style="margin-top:6px" title="Empezar con un lienzo en blanco para hacer arte con texto">Empezar sin foto</button>
         <div class="mod-label" style="margin-top:12px">Recorte automático</div>
         <select id="cutMode" style="margin-bottom:10px" title="Recorte automático: quita el fondo y deja solo la persona o su cabeza">
           <option value="">Sin recortar</option>
@@ -2814,7 +2815,7 @@ function newTextLayer(opts) {
     uid: textUid++, text: 'HACELO TUYO', x: 0.5, y: 0.5, size: 0.12, rotation: 0,
     position: 'arriba', fx: false, color: '#e8352b', align: 'center', reparto: 'parejo',
     face: FACES.length ? FACES[FACES.length - 1].id : null,
-    seed: Math.floor(Math.random() * 1e9), tracking: 0, lineHeight: 1.0, letters: {}, open: true,
+    seed: Math.floor(Math.random() * 1e9), tracking: 0, lineHeight: 1.0, letters: {}, open: true, visible: true,
   }, opts || {});
 }
 
@@ -2930,6 +2931,72 @@ function layoutText(layer, W, H) {
   return { glyphs, box: { x: cx - maxW / 2, y: cy - totalH / 2, w: maxW, h: totalH, cx, cy, rotation: layer.rotation || 0 } };
 }
 
+function newCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+function drawTextLayer(ctx, layer, W, H) {
+  const { glyphs } = layoutText(layer, W, H);
+  ctx.save();
+  ctx.fillStyle = ctx.strokeStyle = layer.color;
+  for (const g of glyphs) {
+    const p2 = new Path2D(g.path.toPathData(3));
+    if (g.outline) { ctx.lineWidth = Math.max(1, g.size * 0.03); ctx.lineJoin = 'round'; ctx.stroke(p2); }
+    else ctx.fill(p2);
+  }
+  ctx.restore();
+}
+
+function textGroups(exclude) {
+  const T = (state.texts || []).filter(t => t.visible !== false && t !== exclude);
+  const g = (pos, fx) => T.filter(t => t.position === pos && !!t.fx === fx);
+  return { belowFx: g('abajo', true), aboveFx: g('arriba', true), belowClean: g('abajo', false), aboveClean: g('arriba', false) };
+}
+
+// Foto + capas de texto + efectos. Reemplaza a runPipeline en la vista y al exportar.
+//  1) texto con efectos (abajo) + foto + texto con efectos (arriba) → lista de efectos
+//  2) fondo blanco (si hay texto limpio abajo) + texto limpio abajo + resultado + texto limpio arriba
+function renderComposition(src, scale, opts) {
+  opts = opts || {};
+  const W = src.width, H = src.height;
+  const G = textGroups(opts.exclude);
+  let pre = src;
+  if (G.belowFx.length || G.aboveFx.length) {
+    pre = newCanvas(W, H);
+    const c = pre.getContext('2d', { willReadFrequently: true });
+    G.belowFx.forEach(t => drawTextLayer(c, t, W, H));
+    c.drawImage(src, 0, 0);
+    G.aboveFx.forEach(t => drawTextLayer(c, t, W, H));
+  }
+  const img = runPipeline(pre, scale, Object.assign({}, opts, { transparentPaper: !!opts.transparentPaper || G.belowClean.length > 0 }));
+  if (!G.belowClean.length && !G.aboveClean.length) return img;
+  const mid = newCanvas(img.width, img.height);
+  mid.getContext('2d').putImageData(img, 0, 0);
+  const fin = newCanvas(img.width, img.height);
+  const f = fin.getContext('2d', { willReadFrequently: true });
+  if (G.belowClean.length && !opts.transparentPaper) { f.fillStyle = '#ffffff'; f.fillRect(0, 0, fin.width, fin.height); }
+  G.belowClean.forEach(t => drawTextLayer(f, t, fin.width, fin.height));
+  f.drawImage(mid, 0, 0);
+  G.aboveClean.forEach(t => drawTextLayer(f, t, fin.width, fin.height));
+  return f.getImageData(0, 0, fin.width, fin.height);
+}
+
+// ¿Hay texto abajo de una foto sin transparencia? (quedaría tapado)
+function needsCutoutWarning() {
+  if (!srcPreview || !(state.texts || []).some(t => t.position === 'abajo' && t.visible !== false)) return false;
+  const c = newCanvas(64, 64), g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(srcPreview, 0, 0, 64, 64);
+  const d = g.getImageData(0, 0, 64, 64).data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] < 250) return false;
+  return true;
+}
+
+function startBlankCanvas() {
+  const c = newCanvas(1080, 1350), g = c.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+  fileBase = 'texto';
+  $('#fileName').textContent = 'lienzo en blanco';
+  setSource(c);
+}
+
 /* =====================================================================
    MODOS DE FUSIÓN (como Photoshop) — se aplican a cada efecto sobre lo anterior
    ===================================================================== */
@@ -3009,7 +3076,7 @@ function blendImages(base, top, mode, opacity) {
 const STORAGE_KEY = 'pepper-efectos-v1';
 const PREVIEW_MAX = 1600;
 let uidCounter = 1;
-const state = { pipeline: [], fullRes: false, compare: false, split: 50, zoom: 'fit' };
+const state = { pipeline: [], texts: [], fullRes: false, compare: false, split: 50, zoom: 'fit' };
 let srcFull = null, srcPreview = null, fileBase = 'imagen';
 
 function newStep(id, params) {
@@ -3209,7 +3276,7 @@ function render() {
   requestAnimationFrame(() => {
     const t0 = performance.now();
     let img;
-    try { img = runPipeline(src, scale); }
+    try { img = renderComposition(src, scale); }
     catch (e) { console.error(e); setStatus('Error: ' + e.message); return; }
     out.width = img.width; out.height = img.height;
     out.getContext('2d').putImageData(img, 0, 0);
@@ -3389,7 +3456,7 @@ function exportPNG(transparent) {
   setStatus('Exportando a resolución completa…');
   setTimeout(() => {
     try {
-      const img = runPipeline(srcFull, 1, { transparentPaper: transparent });
+      const img = renderComposition(srcFull, 1, { transparentPaper: transparent });
       const c = document.createElement('canvas');
       c.width = img.width; c.height = img.height;
       c.getContext('2d').putImageData(img, 0, 0);
@@ -3398,6 +3465,7 @@ function exportPNG(transparent) {
   }, 30);
 }
 $('#btnExport').onclick = () => exportPNG(false);
+$('#btnBlank').onclick = () => startBlankCanvas();
 $('#btnExportInk').onclick = () => exportPNG(true);
 
 /* ---------- Ajustes guardados (.json) ---------- */
