@@ -322,6 +322,8 @@ select option{text-transform:none}
 <input type="file" id="fileInput" accept="image/*" hidden>
 <input type="file" id="presetInput" accept="application/json,.json" hidden>
 
+<script src="lib/opentype.min.js"></script>
+<script src="fonts/fonts.js"></script>
 <script>
 'use strict';
 
@@ -2758,6 +2760,51 @@ registerEffect({
 /* =====================================================================
    FIN EFECTOS
    ===================================================================== */
+
+/* =====================================================================
+   TEXTO — capas de texto con tipografías mezcladas por letra
+   Las letras se dibujan desde los contornos de cada tipografía (opentype.js),
+   así la pantalla, el PNG y el SVG salen idénticos.
+   Las tipografías viven en fonts/fonts.js (ver tools/build-fonts.mjs).
+   ===================================================================== */
+const FACES = []; // { id, family, weight, style, font, heaviness 0..1 } ordenadas de fina a gruesa
+function faceById(id) { return FACES.find(f => f.id === id); }
+function faceHasGlyph(face, ch) { return !!face && face.font.charToGlyphIndex(ch) > 0; }
+
+function b64ToBuffer(b64) {
+  const bin = atob(b64), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u.buffer;
+}
+function measureHeaviness(font) {
+  const c = document.createElement('canvas'); c.width = 400; c.height = 100;
+  const g = c.getContext('2d');
+  const sample = 'Hamburgefonstiv';
+  let size = 80;
+  const w = font.getAdvanceWidth(sample, size);
+  if (w > 390) size *= 390 / w;
+  g.fill(new Path2D(font.getPath(sample, 5, 75, size).toPathData(2)));
+  const d = g.getImageData(0, 0, 400, 100).data;
+  let ink = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 127) ink++;
+  return ink / (400 * 100);
+}
+function loadFaces() {
+  if (typeof opentype === 'undefined' || !Array.isArray(window.PEPPER_FONT_DATA)) throw new Error('faltan las tipografías');
+  for (const f of window.PEPPER_FONT_DATA) {
+    try {
+      const font = opentype.parse(b64ToBuffer(f.b64));
+      FACES.push({ id: f.id, family: f.family, weight: f.weight, style: f.style, font, heaviness: measureHeaviness(font) });
+    } catch (e) { console.warn('Tipografía no cargada:', f.id, e); }
+  }
+  if (!FACES.length) throw new Error('ninguna tipografía cargó');
+  const hs = FACES.map(f => f.heaviness), lo = Math.min(...hs), hi = Math.max(...hs);
+  FACES.forEach(f => { f.heaviness = hi > lo ? (f.heaviness - lo) / (hi - lo) : 0.5; });
+  FACES.sort((a, b) => a.heaviness - b.heaviness);
+}
+let textoError = null;
+try { loadFaces(); window.__textoReady = true; }
+catch (e) { textoError = e; window.__textoReady = 'error'; console.warn('Texto desactivado:', e); }
 
 /* =====================================================================
    MODOS DE FUSIÓN (como Photoshop) — se aplican a cada efecto sobre lo anterior
